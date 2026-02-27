@@ -1,0 +1,22 @@
+order_id,customer_name,email,order_date,amount,status,notes
+1001,Alice Johnson,alice@example.com,2023-11-03,149.99,active,First order
+1002,Bob Smith,bob@example.com,03/11/2023,89.50,active,Repeat customer
+1003,Clara Müller,clara@example.com,11-03-23,200.00,active,Referred by Alice
+,,,,,,
+1005,David Lee,david@example.com,November 3 2023,55.25,active,
+1006,Eva Rossi,eva@example.com,2023/11/03,310.00,active,Bulk order
+1007,Frank,frank@example.com,03-11-2023,active,Needs follow-up
+1008,Grace Kim,grace@example.com,11/03/23,99.00,active,Gift wrapping
+order_id,customer_name,email,order_date,amount,status,notes
+1009,Hiro Tanaka,hiro@example.com,2023-11-04,450.00,active,Express shipping
+1010,Isla Brown,isla@example.com,04/11/2023,12.00,active,active,Promo code used
+,,,,,,
+1012,Jack White,jack@example.com,11-04-23,78.30,active,
+1013,Karen Yýldûz,karen@example.com,2023-11-05,135.00,active,International
+1014,Liam O'Brien,liam@example.com,05/11/2023,active,Callback requested
+1015, Mia Patel ,mia@example.com,11/05/23,220.50,active,active
+1016,Noah García,noah@example.com,2023-11-06,88.00,active,
+,,,,,,
+1018,Olivia Chen,olivia@example.com,06-11-23,310.00,active,Wholesale
+1019,Pete Andersen,pete@example.com,November 6 2023,44.10,active,
+1020,Quinn,quinn@example.com,2023/11/06,195.00,active,No invoice needed
