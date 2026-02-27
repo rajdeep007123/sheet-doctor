@@ -16,10 +16,13 @@ Exit codes:
     1 — input file not found or unreadable
 """
 
+from __future__ import annotations
+
 import csv
 import io
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -76,7 +79,53 @@ class QuarantineRow:
 # STEP 1 — Read with mixed-encoding tolerance
 # ══════════════════════════════════════════════════════════════════════════
 
-def read_mixed_encoding(path: Path) -> list[list[str]]:
+def detect_delimiter(csv_text: str) -> str:
+    sample_lines = [line for line in csv_text.splitlines() if line.strip()][:50]
+    sample = "\n".join(sample_lines[:25])
+
+    if sample:
+        try:
+            sniffed = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            return sniffed.delimiter
+        except csv.Error:
+            pass
+
+    candidates = [",", ";", "\t", "|"]
+    best_delim = ","
+    best_score = float("-inf")
+    best_width = 0
+
+    sample_text = "\n".join(sample_lines[:120])
+    for delim in candidates:
+        rows = [
+            row
+            for row in csv.reader(io.StringIO(sample_text), delimiter=delim)
+            if any(cell.strip() for cell in row)
+        ]
+        if len(rows) < 2:
+            continue
+
+        widths = [len(row) for row in rows]
+        width_counts = Counter(widths)
+        mode_width, mode_count = width_counts.most_common(1)[0]
+        consistency = mode_count / len(widths)
+        header_width = len(rows[0])
+
+        score = (mode_width * 2.0) + (consistency * mode_width)
+        if header_width == mode_width:
+            score += 1.0
+        if mode_width == 1:
+            score -= 10.0
+
+        if score > best_score or (score == best_score and mode_width > best_width):
+            best_score = score
+            best_width = mode_width
+            best_delim = delim
+
+    return best_delim
+
+
+def read_mixed_encoding(path: Path) -> tuple[list[list[str]], str]:
     """
     Files with mixed Latin-1 and UTF-8 bytes: split on raw newlines, try
     UTF-8 per line, fall back to Latin-1. Rejoin and re-parse with
@@ -87,10 +136,14 @@ def read_mixed_encoding(path: Path) -> list[list[str]]:
     lines = []
     for line in raw.split(b"\n"):
         try:
-            lines.append(line.decode("utf-8"))
+            decoded = line.decode("utf-8")
         except UnicodeDecodeError:
-            lines.append(line.decode("latin-1"))
-    return list(csv.reader(io.StringIO("\n".join(lines))))
+            decoded = line.decode("latin-1")
+        lines.append(decoded.replace("\x00", ""))
+    csv_text = "\n".join(lines)
+    delimiter = detect_delimiter(csv_text)
+    rows = list(csv.reader(io.StringIO(csv_text), delimiter=delimiter))
+    return rows, delimiter
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -461,7 +514,7 @@ def needs_review(row: list[str], was_padded: bool) -> bool:
 # MAIN PROCESSING LOOP
 # ══════════════════════════════════════════════════════════════════════════
 
-def process(all_rows: list[list[str]]) -> tuple[list[CleanRow], list[QuarantineRow], list[Change]]:
+def process_schema_specific(all_rows: list[list[str]]) -> tuple[list[CleanRow], list[QuarantineRow], list[Change]]:
     header_sig = tuple(c.strip().lower() for c in all_rows[0])
 
     clean_data: list[CleanRow]       = []
@@ -564,6 +617,203 @@ def process(all_rows: list[list[str]]) -> tuple[list[CleanRow], list[QuarantineR
     return clean_data, quarantine, changelog
 
 
+GENERIC_QUARANTINE_REASONS = {
+    "EMPTY":             "Completely empty row",
+    "WHITESPACE":        "Row is all whitespace",
+    "STRUCTURAL_HEADER": "Structural row (header repeated)",
+    "STRUCTURAL_TOTAL":  "Structural row (TOTAL/subtotal)",
+    "SPARSE":            "Less than 25% columns filled",
+}
+
+
+def _normalise_header_text(value: str, index: int) -> str:
+    cleaned = " ".join(value.replace("\ufeff", "").strip().split())
+    if not cleaned:
+        return f"column_{index}"
+    return cleaned
+
+
+def _clean_cell_text(value: str) -> tuple[str, list[str]]:
+    new_val = value
+    reasons = []
+
+    if "\ufeff" in new_val:
+        new_val = new_val.replace("\ufeff", "")
+        reasons.append("BOM byte-order mark stripped")
+    if "\x00" in new_val:
+        new_val = new_val.replace("\x00", "")
+        reasons.append("Null byte removed")
+    if "\n" in new_val or "\r" in new_val:
+        new_val = new_val.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+        reasons.append("Embedded line break replaced with space")
+
+    had_smart = any(s in new_val for s in SMART_QUOTES)
+    for smart, straight in SMART_QUOTES.items():
+        new_val = new_val.replace(smart, straight)
+    if had_smart:
+        reasons.append("Smart/curly quotes normalised to straight quotes")
+
+    new_val = new_val.strip()
+
+    return new_val, reasons
+
+
+def normalise_headers_generic(raw_header: list[str]) -> tuple[list[str], list[Change]]:
+    headers = []
+    changes: list[Change] = []
+    seen = Counter()
+
+    for i, cell in enumerate(raw_header, start=1):
+        original = cell or ""
+        cleaned, clean_reasons = _clean_cell_text(original)
+        base = _normalise_header_text(cleaned, i)
+        key = base.lower()
+        seen[key] += 1
+        final = f"{base}_{seen[key]}" if seen[key] > 1 else base
+
+        reasons = list(clean_reasons)
+        if seen[key] > 1:
+            reasons.append("Duplicate header renamed with suffix")
+        if final != original:
+            reason = "; ".join(reasons) if reasons else "Header normalised"
+            changes.append(Change(1, f"[header col {i}]", original, final, "Fixed", reason))
+
+        headers.append(final)
+
+    return headers, changes
+
+
+def classify_raw_row_generic(row: list[str], header_sig: tuple[str, ...], n_cols: int) -> str:
+    stripped = [c.strip() for c in row]
+
+    if all(c == "" for c in stripped):
+        return "WHITESPACE" if any(c != "" for c in row) else "EMPTY"
+
+    if tuple(c.lower() for c in stripped) == header_sig:
+        return "STRUCTURAL_HEADER"
+
+    first_non_empty = next((c for c in stripped if c), "")
+    non_empty = sum(1 for c in stripped if c)
+
+    if re.match(r"^(grand\s+total|subtotal|total)\b", first_non_empty, flags=re.IGNORECASE):
+        if non_empty <= max(2, n_cols // 3):
+            return "STRUCTURAL_TOTAL"
+
+    if non_empty < max(1, int(n_cols * 0.25)):
+        return "SPARSE"
+
+    return "NORMAL"
+
+
+def fix_alignment_generic(
+    row: list[str], row_num: int, n_cols: int, delimiter: str
+) -> tuple[list[str], Change | None, bool]:
+    n = len(row)
+    if n == n_cols:
+        return row, None, False
+
+    if n > n_cols:
+        merged_tail = f"{delimiter} ".join(part for part in row[n_cols - 1:] if part != "")
+        fixed = row[: n_cols - 1] + [merged_tail]
+        return fixed, Change(
+            row_num,
+            "[row structure]",
+            f"{n} columns",
+            f"{n_cols} columns",
+            "Fixed",
+            f"Overflow columns merged into last column using delimiter '{delimiter}'",
+        ), True
+
+    fixed = row + [""] * (n_cols - n)
+    return fixed, Change(
+        row_num,
+        "[row structure]",
+        f"{n} columns",
+        f"{n_cols} columns ({n_cols - n} empty field(s) appended)",
+        "Fixed",
+        f"Short row padded with {n_cols - n} empty field(s)",
+    ), True
+
+
+def clean_row_generic(
+    row: list[str], row_num: int, headers: list[str]
+) -> tuple[list[str], list[Change]]:
+    cleaned = []
+    changes: list[Change] = []
+
+    for i, cell in enumerate(row):
+        original = cell
+        new_val, reasons = _clean_cell_text(cell)
+        if reasons:
+            col_label = headers[i] if i < len(headers) else f"[col {i + 1}]"
+            orig_display = original.replace("\ufeff", "[BOM]").replace("\x00", "[NULL]")
+            changes.append(
+                Change(row_num, col_label, orig_display, new_val, "Fixed", "; ".join(reasons))
+            )
+        cleaned.append(new_val)
+
+    return cleaned, changes
+
+
+def needs_review_generic(row: list[str], structure_changed: bool) -> bool:
+    if structure_changed:
+        return True
+    review_tokens = {"nan", "null", "n/a", "na", "not applicable", "none", "inf"}
+    return any(cell.strip().lower() in review_tokens for cell in row if cell.strip())
+
+
+def process_generic(
+    all_rows: list[list[str]], delimiter: str
+) -> tuple[list[CleanRow], list[QuarantineRow], list[Change], list[str]]:
+    headers, header_changes = normalise_headers_generic(all_rows[0])
+    n_cols = len(headers)
+    header_sig = tuple(h.strip().lower() for h in headers)
+
+    clean_data: list[CleanRow] = []
+    quarantine: list[QuarantineRow] = []
+    changelog: list[Change] = list(header_changes)
+    seen_exact: dict[tuple, int] = {}
+
+    for i, raw_row in enumerate(all_rows[1:], start=2):
+        cls = classify_raw_row_generic(raw_row, header_sig, n_cols)
+        if cls != "NORMAL":
+            q_reason = GENERIC_QUARANTINE_REASONS[cls]
+            q_row = [c.strip() for c in raw_row]
+            q_row = (q_row + [""] * n_cols)[:n_cols]
+            row_id = next((c for c in q_row if c), "[empty]")
+            quarantine.append(QuarantineRow(q_row, i, q_reason))
+            changelog.append(Change(i, "[row]", row_id[:60], "", "Quarantined", q_reason))
+            continue
+
+        aligned, align_change, structure_changed = fix_alignment_generic(raw_row, i, n_cols, delimiter)
+        if align_change:
+            changelog.append(align_change)
+
+        cleaned, cell_changes = clean_row_generic(aligned, i, headers)
+        changelog.extend(cell_changes)
+        was_modified = bool(align_change or cell_changes)
+
+        row_key = tuple(cleaned)
+        if row_key in seen_exact:
+            first_row = seen_exact[row_key]
+            changelog.append(
+                Change(i, "[row]", cleaned[0] if cleaned else "", "", "Removed", f"Exact duplicate of row {first_row}")
+            )
+            continue
+        seen_exact[row_key] = i
+
+        clean_data.append(
+            CleanRow(
+                row=cleaned,
+                row_num=i,
+                was_modified=was_modified,
+                needs_review=needs_review_generic(cleaned, structure_changed),
+            )
+        )
+
+    return clean_data, quarantine, changelog, headers
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # EXCEL OUTPUT
 # ══════════════════════════════════════════════════════════════════════════
@@ -586,6 +836,16 @@ def _style_sheet(ws, col_widths: list[int], header_color: str):
     for i, width in enumerate(col_widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = width
 
+
+def _infer_col_widths(rows: list[list], min_width: int = 10, max_width: int = 60, sample: int = 300) -> list[int]:
+    if not rows:
+        return []
+    widths = [max(min_width, min(max_width, len(str(v)) + 2)) for v in rows[0]]
+    for row in rows[1 : sample + 1]:
+        for i, val in enumerate(row):
+            widths[i] = max(widths[i], min(max_width, len(str(val)) + 2))
+    return [max(min_width, min(max_width, w)) for w in widths]
+
 # Accent fills for was_modified / needs_review cells
 FILL_MODIFIED = PatternFill("solid", fgColor="FFF2CC")   # soft yellow
 FILL_REVIEW   = PatternFill("solid", fgColor="FCE4D6")   # soft orange
@@ -595,54 +855,60 @@ def write_workbook(
     quarantine:  list[QuarantineRow],
     changelog:   list[Change],
     output_path: Path,
+    headers: list[str] | None = None,
 ) -> None:
+    headers = headers or HEADERS
     wb = openpyxl.Workbook()
 
     # ── Sheet 1 — Clean Data ─────────────────────────────────────────────
     ws1 = wb.active
     ws1.title = "Clean Data"
-    clean_headers = HEADERS + ["was_modified", "needs_review"]
+    clean_headers = headers + ["was_modified", "needs_review"]
+    clean_rows_for_width = [clean_headers]
     ws1.append(clean_headers)
     for entry in clean_data:
         row_out = entry.row + [entry.was_modified, entry.needs_review]
         ws1.append(row_out)
+        clean_rows_for_width.append(row_out)
         # Accent modified / review flag cells
         last = ws1.max_row
-        mod_cell    = ws1.cell(last, len(HEADERS) + 1)
-        review_cell = ws1.cell(last, len(HEADERS) + 2)
+        mod_cell    = ws1.cell(last, len(headers) + 1)
+        review_cell = ws1.cell(last, len(headers) + 2)
         if entry.was_modified:
             mod_cell.fill = FILL_MODIFIED
         if entry.needs_review:
             review_cell.fill = FILL_REVIEW
-    _style_sheet(ws1,
-                 [22, 18, 13, 11, 11, 16, 12, 40, 14, 13],
-                 "4CAF50")   # green
+    _style_sheet(ws1, _infer_col_widths(clean_rows_for_width), "4CAF50")   # green
 
     # ── Sheet 2 — Quarantine ─────────────────────────────────────────────
     ws2 = wb.create_sheet("Quarantine")
-    ws2.append(HEADERS + ["quarantine_reason"])
+    quarantine_headers = headers + ["quarantine_reason"]
+    quarantine_rows_for_width = [quarantine_headers]
+    ws2.append(quarantine_headers)
     for q in quarantine:
-        ws2.append(q.row + [q.reason])
-    _style_sheet(ws2,
-                 [22, 18, 13, 11, 11, 16, 12, 35, 35],
-                 "E53935")   # red
+        row_out = q.row + [q.reason]
+        ws2.append(row_out)
+        quarantine_rows_for_width.append(row_out)
+    _style_sheet(ws2, _infer_col_widths(quarantine_rows_for_width), "E53935")   # red
 
     # ── Sheet 3 — Change Log ─────────────────────────────────────────────
     ws3 = wb.create_sheet("Change Log")
     log_headers = ["original_row_number", "column_affected",
                    "original_value", "new_value", "action_taken", "reason"]
+    log_rows_for_width = [log_headers]
     ws3.append(log_headers)
     for c in changelog:
-        ws3.append([c.original_row_number, c.column_affected,
-                    c.original_value, c.new_value, c.action_taken, c.reason])
-    _style_sheet(ws3,
-                 [22, 20, 35, 35, 14, 50],
-                 "1565C0")   # blue
+        row_out = [c.original_row_number, c.column_affected,
+                   c.original_value, c.new_value, c.action_taken, c.reason]
+        ws3.append(row_out)
+        log_rows_for_width.append(row_out)
+    _style_sheet(ws3, _infer_col_widths(log_rows_for_width), "1565C0")   # blue
 
     # Notes column text-wrap in Sheet 1
-    notes_col = get_column_letter(COL["Notes"] + 1)
-    for cell in ws1[notes_col][1:]:
-        cell.alignment = Alignment(wrap_text=True, vertical="top")
+    if "Notes" in headers:
+        notes_col = get_column_letter(headers.index("Notes") + 1)
+        for cell in ws1[notes_col][1:]:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
 
     # Reason column text-wrap in Sheet 3
     for cell in ws3["F"][1:]:
@@ -671,6 +937,28 @@ ASSUMPTIONS = [
     "Metadata export row (sparse, 1/8 fields filled): quarantined as 'Less than 50% columns filled'",
 ]
 
+GENERIC_ASSUMPTIONS = [
+    "Delimiter is auto-detected from the file content (comma/semicolon/tab/pipe)",
+    "Rows with overflow columns are repaired by merging overflow into the last column",
+    "Rows with missing trailing columns are padded with empty strings",
+    "Repeated header rows and subtotal/total structural rows are quarantined",
+    "BOM/null bytes/line breaks/smart quotes are normalised in text cells",
+    "Exact duplicate rows are removed (first occurrence kept)",
+]
+
+
+def _normalise_header_for_match(value: str) -> str:
+    return " ".join(value.strip().lower().split())
+
+
+def is_schema_specific_header(header_row: list[str]) -> bool:
+    if len(header_row) != N_COLS:
+        return False
+    cleaned = tuple(_normalise_header_for_match(c or "") for c in header_row)
+    expected = tuple(_normalise_header_for_match(c) for c in HEADERS)
+    return cleaned == expected
+
+
 def main():
     input_path  = Path(sys.argv[1]) if len(sys.argv) > 1 else INPUT
     output_path = Path(sys.argv[2]) if len(sys.argv) > 2 else OUTPUT
@@ -679,19 +967,26 @@ def main():
         print(f"ERROR: File not found: {input_path}", file=sys.stderr)
         sys.exit(1)
 
-    all_rows = read_mixed_encoding(input_path)
+    all_rows, delimiter = read_mixed_encoding(input_path)
     if len(all_rows) < 2:
         print("ERROR: File is empty or has only a header.", file=sys.stderr)
         sys.exit(1)
 
     total_in = len(all_rows)   # includes the actual header row
 
-    clean_data, quarantine, changelog = process(all_rows)
+    if is_schema_specific_header(all_rows[0]):
+        mode = "schema-specific"
+        clean_data, quarantine, changelog = process_schema_specific(all_rows)
+        headers = HEADERS
+        assumptions = ASSUMPTIONS
+    else:
+        mode = "generic"
+        clean_data, quarantine, changelog, headers = process_generic(all_rows, delimiter)
+        assumptions = GENERIC_ASSUMPTIONS
 
-    write_workbook(clean_data, quarantine, changelog, output_path)
+    write_workbook(clean_data, quarantine, changelog, output_path, headers=headers)
 
     # ── Counts by action type ─────────────────────────────────────────────
-    from collections import Counter
     action_counts = Counter(c.action_taken for c in changelog)
 
     W = 60
@@ -701,6 +996,8 @@ def main():
     print("═" * W)
     print(f"  Input file   : {input_path.name}")
     print(f"  Output file  : {output_path.name}")
+    print(f"  Mode         : {mode}")
+    print(f"  Delimiter    : {repr(delimiter)}")
     print("─" * W)
     print(f"  Rows in      : {total_in}  (incl. column header row)")
     print(f"  Clean Data   : {len(clean_data)} rows")
@@ -719,7 +1016,7 @@ def main():
     print(f"    · Flagged     : {action_counts.get('Flagged', 0)}")
     print("─" * W)
     print("  ASSUMPTIONS MADE:")
-    for a in ASSUMPTIONS:
+    for a in assumptions:
         print(f"    · {a}")
     print("═" * W)
     print()

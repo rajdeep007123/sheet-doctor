@@ -14,9 +14,10 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 
 | Skill | Scripts | What it does |
 |---|---|---|
-| `csv-doctor` | `diagnose.py` | Encoding, column alignment, date formats, empty rows, duplicate headers |
-| `csv-doctor` | `heal.py` | Fixes all issues automatically — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) |
-| `excel-doctor` | `diagnose.py` | Sheet inventory, merged cells, formula errors, mixed types, empty rows/cols, duplicate headers, date formats, single-value columns |
+| `csv-doctor` | `diagnose.py` | Encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers |
+| `csv-doctor` | `heal.py` | Schema-aware healing (generic + finance mode) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) |
+| `excel-doctor` | `diagnose.py` | Deep Excel diagnostics: sheet inventory, merged cells, formula errors/cache misses, mixed types, duplicate/whitespace headers, structural rows, sparse columns |
+| `excel-doctor` | `heal.py` | Safe workbook fixes: unmerge ranges, standardise/dedupe headers, clean text/date values, remove empty rows, append Change Log |
 
 More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 
@@ -74,7 +75,7 @@ Or just drop a file in and say: *"diagnose this CSV"* / *"fix my spreadsheet"*
 
 ## Try it immediately
 
-Two sample files live in `sample-data/` — both deliberately broken.
+Sample files live in `sample-data/` — all deliberately broken for testing.
 
 **`messy_sample.csv`** — encoding corruption, misaligned columns, 7 date formats, empty rows, duplicate header.
 
@@ -96,7 +97,11 @@ python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv
 **`messy_sample.xlsx`** — broken Excel workbook with hidden sheets, merged cells, formula errors, and mixed column types.
 
 ```bash
+# Diagnose
 python skills/excel-doctor/scripts/diagnose.py sample-data/messy_sample.xlsx
+
+# Heal — outputs messy_sample_healed.xlsx with a Change Log tab
+python skills/excel-doctor/scripts/heal.py sample-data/messy_sample.xlsx
 ```
 
 ---
@@ -115,7 +120,8 @@ skills/
 └── excel-doctor/
     ├── SKILL.md
     └── scripts/
-        └── diagnose.py      ← analyses the workbook, outputs JSON
+        ├── diagnose.py      ← analyses the workbook, outputs JSON
+        └── heal.py          ← applies safe fixes, writes healed workbook + Change Log
 ```
 
 ---

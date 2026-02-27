@@ -26,6 +26,9 @@ Detects the file's actual encoding using `chardet` and flags mismatches with UTF
 ### 2. Column alignment
 Counts columns in every row and flags rows where the count differs from the header. Misaligned rows usually mean a rogue comma, an unquoted field containing a comma, or a copy-paste accident.
 
+### 2.5 Delimiter detection
+Auto-detects delimiter (`comma`, `semicolon`, `tab`, `pipe`) before analysis. This prevents false "misaligned row" results when a file is not comma-separated.
+
 ### 3. Date format consistency
 Scans all columns that look like they contain dates and flags any column where more than one date format is in use. Reports every format found and example values for each.
 
@@ -68,6 +71,8 @@ Fixes all issues automatically and writes a 3-sheet Excel workbook. Prints a sum
 ## Input
 
 A path to any `.csv` file. Both scripts handle mixed encodings (Latin-1, UTF-8, Windows-1252) before reading — the file does not need to be valid UTF-8.
+
+Both scripts also auto-detect common delimiters (`comma`, `semicolon`, `tab`, `pipe`).
 
 ---
 
@@ -133,6 +138,13 @@ The script outputs a single JSON object to stdout. Claude parses this and format
 ## heal.py
 
 ### What it fixes automatically
+`heal.py` now runs in two modes:
+
+- **Schema-specific mode** (when headers match the finance sample schema):
+  keeps the current deep normalisation logic (dates, amount, currency, status, near-duplicates, etc.)
+- **Generic mode** (any other CSV):
+  performs schema-aware structural cleaning without forcing the finance column assumptions
+
 | Problem | Fix applied |
 |---|---|
 | Mixed Latin-1 / UTF-8 encoding | Per-line decode: UTF-8 first, Latin-1 fallback |
@@ -140,6 +152,7 @@ The script outputs a single JSON object to stdout. Claude parses this and format
 | Null bytes | Removed from cell values |
 | Smart / curly quotes | Replaced with straight quotes |
 | Line breaks inside cells | Replaced with a space |
+| Wrong delimiter assumption | Auto-detected delimiter used for parsing |
 | Rows shifted right (ghost leading column) | Leading empty column stripped |
 | Phantom comma (ghost field before Notes) | Ghost field removed |
 | Unquoted commas in Notes | Overflow columns merged back into Notes |
@@ -150,6 +163,7 @@ The script outputs a single JSON object to stdout. Claude parses this and format
 | Names in any case / "Last, First" order | Title Case, First Last order |
 | Inconsistent status values | Normalised to Approved / Rejected / Pending |
 | Exact duplicate rows | First occurrence kept; rest removed |
+| Repeated header rows / structural totals (generic mode) | Quarantined |
 
 ### Output workbook — 3 sheets
 

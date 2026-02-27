@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 csv-doctor diagnose.py
-Part of sheet-doctor — https://github.com/rajdeep/sheet-doctor
+Part of sheet-doctor — https://github.com/razzo007/sheet-doctor
 
 Analyses a CSV file for common data quality problems and outputs a JSON
 health report to stdout. Designed to be run by Claude Code's csv-doctor skill.
@@ -16,6 +16,8 @@ Exit codes:
 
 import sys
 import json
+import io
+import csv
 import re
 from pathlib import Path
 from collections import Counter
@@ -62,17 +64,100 @@ def detect_encoding(file_path: Path) -> dict:
     }
 
 
-def load_csv_raw_rows(file_path: Path, encoding: str) -> list[list[str]]:
-    """Read the file line by line without pandas to check raw column counts."""
-    import csv
+def _decode_line(raw_line: bytes, preferred_encoding: str) -> str:
+    encodings = []
+    if preferred_encoding and preferred_encoding != "unknown":
+        encodings.append(preferred_encoding)
+    encodings.extend(["utf-8", "latin-1"])
 
-    rows = []
-    safe_encoding = encoding if encoding and encoding != "unknown" else "latin-1"
-    with open(file_path, encoding=safe_encoding, errors="replace") as f:
-        reader = csv.reader(f)
-        for row in reader:
-            rows.append(row)
-    return rows
+    for enc in encodings:
+        try:
+            return raw_line.decode(enc)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return raw_line.decode("latin-1", errors="replace")
+
+
+def read_csv_text_safely(file_path: Path, encoding: str) -> str:
+    """
+    Decode messy files with mixed encodings and embedded null bytes.
+
+    We decode line-by-line (UTF-8 first, latin-1 fallback) and strip NULs so
+    downstream CSV parsers do not abort with "line contains NUL".
+    """
+    raw = file_path.read_bytes()
+    decoded_lines = []
+    for raw_line in raw.splitlines(keepends=True):
+        decoded = _decode_line(raw_line, encoding)
+        decoded_lines.append(decoded.replace("\x00", ""))
+    return "".join(decoded_lines)
+
+
+def detect_delimiter(csv_text: str) -> str:
+    """Infer delimiter from the first non-empty lines."""
+    sample_lines = [line for line in csv_text.splitlines() if line.strip()][:50]
+    sample = "\n".join(sample_lines[:25])
+
+    if sample:
+        try:
+            sniffed = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            return sniffed.delimiter
+        except csv.Error:
+            pass
+
+    candidates = [",", ";", "\t", "|"]
+    best_delim = ","
+    best_score = float("-inf")
+    best_width = 0
+
+    sample_text = "\n".join(sample_lines[:120])
+    for delim in candidates:
+        rows = [
+            row
+            for row in csv.reader(io.StringIO(sample_text), delimiter=delim)
+            if any(cell.strip() for cell in row)
+        ]
+        if len(rows) < 2:
+            continue
+
+        widths = [len(row) for row in rows]
+        width_counts = Counter(widths)
+        mode_width, mode_count = width_counts.most_common(1)[0]
+        consistency = mode_count / len(widths)
+        header_width = len(rows[0])
+
+        # Strongly prefer delimiters that produce a stable multi-column table.
+        score = (mode_width * 2.0) + (consistency * mode_width)
+        if header_width == mode_width:
+            score += 1.0
+
+        if mode_width == 1:
+            score -= 10.0
+
+        if score > best_score or (score == best_score and mode_width > best_width):
+            best_score = score
+            best_width = mode_width
+            best_delim = delim
+
+    return best_delim
+
+
+def load_csv_raw_rows(csv_text: str, delimiter: str) -> list[list[str]]:
+    """Read CSV rows without pandas to check raw column counts."""
+    return list(csv.reader(io.StringIO(csv_text), delimiter=delimiter))
+
+
+def load_pandas_df(csv_text: str, delimiter: str):
+    import pandas as pd
+
+    sep = r"\|" if delimiter == "|" else delimiter
+    return pd.read_csv(
+        io.StringIO(csv_text),
+        dtype=str,
+        on_bad_lines="skip",
+        sep=sep,
+        engine="python",
+    )
 
 
 def check_column_alignment(raw_rows: list[list[str]]) -> dict:
@@ -130,7 +215,7 @@ def check_whitespace_headers(raw_rows: list[list[str]]) -> list[str]:
     return [h for h in raw_rows[0] if h != h.strip()]
 
 
-def check_date_formats(file_path: Path, encoding: str) -> dict:
+def check_date_formats(csv_text: str, delimiter: str) -> dict:
     try:
         import pandas as pd
     except ImportError:
@@ -150,9 +235,8 @@ def check_date_formats(file_path: Path, encoding: str) -> dict:
         (r"^\d{1,2}/\d{1,2}/\d{4}$", "M/D/YYYY or D/M/YYYY"),
     ]
 
-    safe_encoding = encoding if encoding and encoding != "unknown" else "latin-1"
     try:
-        df = pd.read_csv(file_path, encoding=safe_encoding, dtype=str, on_bad_lines="skip")
+        df = load_pandas_df(csv_text, delimiter)
     except Exception:
         return {}
 
@@ -187,15 +271,14 @@ def check_date_formats(file_path: Path, encoding: str) -> dict:
     return results
 
 
-def check_columns_quality(file_path: Path, encoding: str) -> dict:
+def check_columns_quality(csv_text: str, delimiter: str) -> dict:
     try:
         import pandas as pd
     except ImportError:
         return {"empty_columns": [], "single_value_columns": {}}
 
-    safe_encoding = encoding if encoding and encoding != "unknown" else "latin-1"
     try:
-        df = pd.read_csv(file_path, encoding=safe_encoding, dtype=str, on_bad_lines="skip")
+        df = load_pandas_df(csv_text, delimiter)
     except Exception:
         return {"empty_columns": [], "single_value_columns": {}}
 
@@ -288,8 +371,11 @@ def main():
     encoding_info = detect_encoding(file_path)
     detected_encoding = encoding_info.get("detected", "latin-1")
 
+    csv_text = read_csv_text_safely(file_path, detected_encoding)
+    delimiter = detect_delimiter(csv_text)
+
     try:
-        raw_rows = load_csv_raw_rows(file_path, detected_encoding)
+        raw_rows = load_csv_raw_rows(csv_text, delimiter)
     except Exception as e:
         print(json.dumps({"error": f"Could not read file: {e}"}), file=sys.stdout)
         sys.exit(1)
@@ -297,13 +383,14 @@ def main():
     report = {
         "file": file_path.name,
         "total_rows": len(raw_rows),
+        "dialect": {"delimiter": delimiter},
         "encoding": encoding_info,
         "column_count": check_column_alignment(raw_rows),
-        "date_formats": check_date_formats(file_path, detected_encoding),
+        "date_formats": check_date_formats(csv_text, delimiter),
         "empty_rows": check_empty_rows(raw_rows),
         "duplicate_headers": check_duplicate_headers(raw_rows),
         "whitespace_headers": check_whitespace_headers(raw_rows),
-        "column_quality": check_columns_quality(file_path, detected_encoding),
+        "column_quality": check_columns_quality(csv_text, delimiter),
     }
 
     report["summary"] = build_summary(report)
