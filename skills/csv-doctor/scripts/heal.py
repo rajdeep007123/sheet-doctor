@@ -47,6 +47,12 @@ HEADERS = ["Employee Name", "Department", "Date", "Amount", "Currency",
 N_COLS  = len(HEADERS)
 COL     = {name: i for i, name in enumerate(HEADERS)}
 
+# Sparse-row thresholds — rows with fewer filled fields than this fraction are quarantined.
+# Schema-specific: 50% — we know exactly what 8 fields to expect, so <4 filled is clearly broken.
+# Generic: 25% — unknown schema means we quarantine only obviously empty rows (>75% blank).
+SPARSE_THRESHOLD_SCHEMA  = 0.50
+SPARSE_THRESHOLD_GENERIC = 0.25
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # DATA CLASSES
@@ -155,7 +161,7 @@ QUARANTINE_REASONS = {
     "WHITESPACE":          "Row is all whitespace",
     "STRUCTURAL_HEADER":   "Structural row (TOTAL/subtotal/header repeat)",
     "STRUCTURAL_TOTAL":    "Structural row (TOTAL/subtotal/header repeat)",
-    "SPARSE":              "Less than 50% columns filled",
+    "SPARSE":              f"Less than {int(SPARSE_THRESHOLD_SCHEMA * 100)}% columns filled",
 }
 
 def classify_raw_row(row: list[str], header_sig: tuple[str, ...]) -> str:
@@ -172,7 +178,7 @@ def classify_raw_row(row: list[str], header_sig: tuple[str, ...]) -> str:
         return "STRUCTURAL_TOTAL"
 
     non_empty = sum(1 for c in stripped if c)
-    if non_empty < N_COLS * 0.5:
+    if non_empty < N_COLS * SPARSE_THRESHOLD_SCHEMA:
         return "SPARSE"
 
     return "NORMAL"
@@ -236,47 +242,49 @@ SMART_QUOTES = {
     "\u2018": "'", "\u2019": "'",   # '' single curly / smart apostrophe
 }
 
+def _clean_cell_text(value: str) -> tuple[str, list[str]]:
+    """Strip BOM, null bytes, line breaks, smart quotes. Returns (cleaned_value, reasons)."""
+    new_val = value
+    reasons = []
+
+    if "\ufeff" in new_val:
+        new_val = new_val.replace("\ufeff", "")
+        reasons.append("BOM byte-order mark stripped")
+    if "\x00" in new_val:
+        new_val = new_val.replace("\x00", "")
+        reasons.append("Null byte removed")
+    if "\n" in new_val or "\r" in new_val:
+        new_val = new_val.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+        reasons.append("Embedded line break replaced with space")
+
+    had_smart = any(s in new_val for s in SMART_QUOTES)
+    for smart, straight in SMART_QUOTES.items():
+        new_val = new_val.replace(smart, straight)
+    if had_smart:
+        reasons.append("Smart/curly quotes normalised to straight quotes")
+
+    new_val = new_val.strip()
+    return new_val, reasons
+
+
 def _col_name(i: int) -> str:
     return HEADERS[i] if i < N_COLS else f"[col {i + 1}]"
 
 def clean_row(row: list[str], row_num: int) -> tuple[list[str], list[Change]]:
     cleaned, changes = [], []
     for i, cell in enumerate(row):
-        orig = cell
-        val  = cell
-        reasons = []
-
-        if "\ufeff" in val:
-            val = val.replace("\ufeff", "")
-            reasons.append("BOM byte-order mark stripped")
-
-        if "\x00" in val:
-            val = val.replace("\x00", "")
-            reasons.append("Null byte removed")
-
-        if "\n" in val or "\r" in val:
-            val = val.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
-            reasons.append("Embedded line break replaced with space")
-
-        had_smart = any(s in val for s in SMART_QUOTES)
-        for smart, straight in SMART_QUOTES.items():
-            val = val.replace(smart, straight)
-        if had_smart:
-            reasons.append("Smart/curly quotes normalised to straight quotes")
-
-        val = val.strip()
-
+        new_val, reasons = _clean_cell_text(cell)
         if reasons:
-            orig_display = (orig
+            orig_display = (cell
                             .replace("\ufeff", "[BOM]")
                             .replace("\x00", "[NULL]")
                             .strip())
             changes.append(Change(
                 row_num, _col_name(i),
-                orig_display, val,
+                orig_display, new_val,
                 "Fixed", "; ".join(reasons)
             ))
-        cleaned.append(val)
+        cleaned.append(new_val)
     return cleaned, changes
 
 
@@ -622,7 +630,7 @@ GENERIC_QUARANTINE_REASONS = {
     "WHITESPACE":        "Row is all whitespace",
     "STRUCTURAL_HEADER": "Structural row (header repeated)",
     "STRUCTURAL_TOTAL":  "Structural row (TOTAL/subtotal)",
-    "SPARSE":            "Less than 25% columns filled",
+    "SPARSE":            f"Less than {int(SPARSE_THRESHOLD_GENERIC * 100)}% columns filled",
 }
 
 
@@ -631,31 +639,6 @@ def _normalise_header_text(value: str, index: int) -> str:
     if not cleaned:
         return f"column_{index}"
     return cleaned
-
-
-def _clean_cell_text(value: str) -> tuple[str, list[str]]:
-    new_val = value
-    reasons = []
-
-    if "\ufeff" in new_val:
-        new_val = new_val.replace("\ufeff", "")
-        reasons.append("BOM byte-order mark stripped")
-    if "\x00" in new_val:
-        new_val = new_val.replace("\x00", "")
-        reasons.append("Null byte removed")
-    if "\n" in new_val or "\r" in new_val:
-        new_val = new_val.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
-        reasons.append("Embedded line break replaced with space")
-
-    had_smart = any(s in new_val for s in SMART_QUOTES)
-    for smart, straight in SMART_QUOTES.items():
-        new_val = new_val.replace(smart, straight)
-    if had_smart:
-        reasons.append("Smart/curly quotes normalised to straight quotes")
-
-    new_val = new_val.strip()
-
-    return new_val, reasons
 
 
 def normalise_headers_generic(raw_header: list[str]) -> tuple[list[str], list[Change]]:
@@ -699,7 +682,7 @@ def classify_raw_row_generic(row: list[str], header_sig: tuple[str, ...], n_cols
         if non_empty <= max(2, n_cols // 3):
             return "STRUCTURAL_TOTAL"
 
-    if non_empty < max(1, int(n_cols * 0.25)):
+    if non_empty < max(1, int(n_cols * SPARSE_THRESHOLD_GENERIC)):
         return "SPARSE"
 
     return "NORMAL"
@@ -934,7 +917,7 @@ ASSUMPTIONS = [
     "Near-duplicate rows (same Name/Amount/Currency/Category, date within 2 days): both kept, both flagged",
     "Exact duplicates: first occurrence kept; subsequent occurrences removed and logged",
     "Short rows (< 8 columns): padded with empty strings; flagged needs_review=TRUE",
-    "Metadata export row (sparse, 1/8 fields filled): quarantined as 'Less than 50% columns filled'",
+    f"Metadata export row (sparse, 1/8 fields filled): quarantined as 'Less than {int(SPARSE_THRESHOLD_SCHEMA * 100)}% columns filled'",
 ]
 
 GENERIC_ASSUMPTIONS = [
