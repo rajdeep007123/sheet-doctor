@@ -8,15 +8,17 @@
 
 ## What it does
 
-Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five different date formats in the same column, blank rows, duplicate headers — sheet-doctor finds all of it and tells you exactly what's wrong and where.
+Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five different date formats in the same column, blank rows, duplicate headers, formula errors — sheet-doctor finds all of it and tells you exactly what's wrong and where.
 
 **Current skills:**
 
-| Skill | What it checks |
-|---|---|
-| `csv-doctor` | Encoding, column alignment, date format consistency, empty rows, duplicate headers |
+| Skill | Scripts | What it does |
+|---|---|---|
+| `csv-doctor` | `diagnose.py` | Encoding, column alignment, date formats, empty rows, duplicate headers |
+| `csv-doctor` | `heal.py` | Fixes all issues automatically — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) |
+| `excel-doctor` | `diagnose.py` | Sheet inventory, merged cells, formula errors, mixed types, empty rows/cols, duplicate headers, date formats, single-value columns |
 
-More skills coming: `excel-doctor`, `merge-doctor`, `type-doctor`.
+More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 
 ---
 
@@ -27,7 +29,7 @@ You need [Claude Code](https://claude.ai/code) and Python 3.9+ installed.
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/rajdeep007123/sheet-doctor.git
+git clone https://github.com/razzo007/sheet-doctor.git
 cd sheet-doctor
 ```
 
@@ -41,53 +43,79 @@ pip install -r requirements.txt
 
 > On Windows: `.venv\Scripts\activate`
 
-**3. Register the skill with Claude Code**
+**3. Register the skills with Claude Code**
 
-Copy the skill folder into your Claude Code skills directory:
+Copy the skill folders into your Claude Code skills directory:
 
 ```bash
 cp -r skills/csv-doctor ~/.claude/skills/csv-doctor
+cp -r skills/excel-doctor ~/.claude/skills/excel-doctor
 ```
 
-Or symlink it if you want edits to take effect immediately:
+Or symlink them if you want edits to take effect immediately:
 
 ```bash
 ln -s "$(pwd)/skills/csv-doctor" ~/.claude/skills/csv-doctor
+ln -s "$(pwd)/skills/excel-doctor" ~/.claude/skills/excel-doctor
 ```
 
 **4. Run it**
 
-In any Claude Code session, just ask:
+In any Claude Code session:
 
 ```
 /csv-doctor path/to/your/file.csv
+/excel-doctor path/to/your/file.xlsx
 ```
 
-Or drag a file in and say: *"diagnose this CSV"*
+Or just drop a file in and say: *"diagnose this CSV"* / *"fix my spreadsheet"*
 
 ---
 
 ## Try it immediately
 
-A deliberately broken sample file lives at `sample-data/messy_sample.csv` — encoding corruption, misaligned columns, 7 different date formats, empty rows, and a duplicate header row all baked in on purpose.
+Two sample files live in `sample-data/` — both deliberately broken.
+
+**`messy_sample.csv`** — encoding corruption, misaligned columns, 7 date formats, empty rows, duplicate header.
 
 ```bash
 source .venv/bin/activate
 python skills/csv-doctor/scripts/diagnose.py sample-data/messy_sample.csv
 ```
 
+**`extreme_mess.csv`** — the full disaster: mixed Latin-1/UTF-8 encoding, BOM, null bytes, smart quotes, phantom commas, 7 date formats, 8 amount formats, near-duplicates, a TOTAL subtotal trap, and more. 50 rows of authentic chaos.
+
+```bash
+# Diagnose it
+python skills/csv-doctor/scripts/diagnose.py sample-data/extreme_mess.csv
+
+# Fix it — outputs extreme_mess_healed.xlsx with 3 sheets
+python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv
+```
+
+**`messy_sample.xlsx`** — broken Excel workbook with hidden sheets, merged cells, formula errors, and mixed column types.
+
+```bash
+python skills/excel-doctor/scripts/diagnose.py sample-data/messy_sample.xlsx
+```
+
 ---
 
 ## How it works
 
-Each skill in sheet-doctor is a `SKILL.md` file that tells Claude what the skill does, plus a `scripts/` folder with the actual Python that does the work. Claude reads the skill, runs the script, interprets the output, and gives you a clean plain-English health report.
+Each skill is a `SKILL.md` that tells Claude what the skill does, plus a `scripts/` folder with the Python that does the work. Claude reads the skill, runs the script, interprets the output, and gives you a plain-English report.
 
 ```
 skills/
-└── csv-doctor/
-    ├── SKILL.md          ← Claude reads this to understand the skill
+├── csv-doctor/
+│   ├── SKILL.md             ← Claude reads this to understand the skill
+│   └── scripts/
+│       ├── diagnose.py      ← analyses the CSV, outputs JSON
+│       └── heal.py          ← fixes all issues, writes .xlsx workbook
+└── excel-doctor/
+    ├── SKILL.md
     └── scripts/
-        └── diagnose.py   ← Python does the actual analysis
+        └── diagnose.py      ← analyses the workbook, outputs JSON
 ```
 
 ---
