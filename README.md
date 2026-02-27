@@ -22,20 +22,24 @@ More skills coming: `excel-doctor`, `merge-doctor`, `type-doctor`.
 
 ## Install
 
-sheet-doctor runs as a Claude Code skill. You need [Claude Code](https://claude.ai/code) installed.
+You need [Claude Code](https://claude.ai/code) and Python 3.9+ installed.
 
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/rajdeep/sheet-doctor.git
+git clone https://github.com/rajdeep007123/sheet-doctor.git
 cd sheet-doctor
 ```
 
-**2. Install Python dependencies**
+**2. Create a virtual environment and install dependencies**
 
 ```bash
-pip install pandas chardet openpyxl
+python3 -m venv .venv
+source .venv/bin/activate
+pip install pandas chardet
 ```
+
+> On Windows: `.venv\Scripts\activate`
 
 **3. Register the skill with Claude Code**
 
@@ -45,7 +49,7 @@ Copy the skill folder into your Claude Code skills directory:
 cp -r skills/csv-doctor ~/.claude/skills/csv-doctor
 ```
 
-Or, if you want to develop and edit the skill in place, symlink it:
+Or symlink it if you want edits to take effect immediately:
 
 ```bash
 ln -s "$(pwd)/skills/csv-doctor" ~/.claude/skills/csv-doctor
@@ -65,9 +69,10 @@ Or drag a file in and say: *"diagnose this CSV"*
 
 ## Try it immediately
 
-A deliberately broken sample file lives at `sample-data/messy_sample.csv`. It has every problem baked in on purpose — encoding issues, misaligned columns, mixed date formats, empty rows, duplicate headers.
+A deliberately broken sample file lives at `sample-data/messy_sample.csv` — encoding corruption, misaligned columns, 7 different date formats, empty rows, and a duplicate header row all baked in on purpose.
 
 ```bash
+source .venv/bin/activate
 python skills/csv-doctor/scripts/diagnose.py sample-data/messy_sample.csv
 ```
 
