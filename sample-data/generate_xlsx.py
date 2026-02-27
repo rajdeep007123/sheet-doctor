@@ -10,10 +10,10 @@ Problems baked in:
   Sheet "Orders"
     - Duplicate header: "customer_id" appears twice (cols B and C)
     - Merged cells: G2:G3 (notes cells merged across two data rows)
-    - Formula errors: #DIV/0! (E5), #REF! (E9), #VALUE! (E12)
+    - Formula errors: #DIV/0! (E6), #REF! (E9), #VALUE! (E11)
     - Mixed types in "amount": floats + "N/A" string
     - Empty rows: rows 5 and 10
-    - 5 different date formats in "order_date"
+    - 6 different date formats in "order_date"
     - Single-value column: "status" is always "active"
   Sheet "Summary"
     - Empty sheet (no data)

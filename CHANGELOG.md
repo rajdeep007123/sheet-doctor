@@ -17,7 +17,7 @@ All notable changes to sheet-doctor are documented here.
   - Outputs JSON to stdout; exit code 0 on success, 1 on failure
 - **`excel-doctor` / `heal.py`** — Excel healer that fixes what `diagnose.py` finds:
   - 4 healing passes: unmerge cells + fill from anchor value; normalise and deduplicate headers; clean text (BOM, null bytes, line breaks, smart quotes) + normalise dates to YYYY-MM-DD; remove fully empty rows
-  - Outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log)
+  - Writes a healed workbook in-place structure plus an added `Change Log` sheet
   - Prints a plain-text summary report to stdout
 - **`sample-data/generate_xlsx.py`** — reproducible generator for `messy_sample.xlsx`
 
