@@ -31,6 +31,8 @@ More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 - ✅ `column_detector.py` — smart column analysis
 - ✅ `reporter.py` — plain-text and JSON health report generator
 - ✅ `heal.py` — fixer with Clean Data / Quarantine / Change Log output
+- ✅ `skills/csv-doctor/SKILL.md` — Claude invocation guide for the full CSV workflow
+- ✅ `skills/csv-doctor/README.md` — standalone developer documentation for the CSV skill
 
 ## Architecture
 
@@ -52,6 +54,8 @@ In practice:
 - `diagnose.py` and `column_detector.py` explain what is wrong
 - `reporter.py` explains it in human terms
 - `heal.py` produces the usable workbook output
+- `SKILL.md` tells Claude when to invoke the workflow
+- `skills/csv-doctor/README.md` documents the subsystem for developers
 
 ---
 

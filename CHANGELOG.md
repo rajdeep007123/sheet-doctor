@@ -7,6 +7,8 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Added
+- **`skills/csv-doctor/README.md`** — standalone developer documentation for the CSV skill:
+  - Explains what `csv-doctor` does, how each script works, accepted formats, output structure, manual commands, and the `extreme_mess.csv` example flow
 - **`csv-doctor` / `reporter.py`** — human-readable health report generator:
   - Combines `diagnose.py` and `column_detector.py` into a plain-text report and a structured JSON artifact
   - Includes file overview, health score, grouped issues, per-column breakdown, recommended actions, and assumptions
@@ -57,7 +59,7 @@ All notable changes to sheet-doctor are documented here.
   - Added public URL rewriting for GitHub, Dropbox, Google Drive, OneDrive, and Box share links
   - Added Google Sheets `/edit` → `.xlsx` export handling and response-based file-type inference when the shared URL hides the extension
 - **`web/UI_CHANGELOG.md`** — added a dedicated UI-facing notes log for Streamlit interface changes
-- **Docs** — README, SKILL, and CONTRIBUTING updated to match the stricter loader behavior, test command, current UI capabilities, the new `column_semantics` report shape, and the new healer edge-case coverage
+- **Docs** — README, SKILL, and CONTRIBUTING updated to match the stricter loader behavior, test command, current UI capabilities, the new `column_semantics` report shape, the new healer edge-case coverage, and the completed `csv-doctor` architecture/docs set
 
 ---
 
