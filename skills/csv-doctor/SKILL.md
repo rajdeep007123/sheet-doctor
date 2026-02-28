@@ -29,7 +29,7 @@ Use this skill when the user says things like:
 |-----------|-------|
 | `.csv` | Delimiter auto-detected (comma, tab, pipe, semicolon) |
 | `.tsv` | Always tab — no sniffing needed |
-| `.txt` | Sniffed like `.csv` |
+| `.txt` | Sniffed like `.csv`; rejects plain-text files that are not tabular |
 | `.xlsx` | Excel (openpyxl) |
 | `.xls` | Excel legacy — requires `pip install xlrd` |
 | `.xlsm` | Excel macro-enabled — macros ignored, data loaded |
@@ -52,7 +52,7 @@ Embedded null bytes are stripped before parsing. This correctly handles files wi
 - **One sheet** — loaded silently.
 - **Multiple sheets, same columns** — prompts the user to pick one or consolidate all into a single table.
 - **Multiple sheets, different columns** — prompts the user to pick one.
-- **Non-interactive** (called as a subprocess by Claude Code) — picks the first sheet and adds a warning to the result.
+- **Non-interactive** (called as a subprocess by Claude Code) — requires explicit `sheet_name` or `consolidate_sheets=True`; otherwise raises a clear error listing the available sheets.
 
 ### What load_file() returns
 
@@ -70,6 +70,7 @@ Embedded null bytes are stripped before parsing. This correctly handles files wi
   "delimiter":   ",",              # None for non-text formats
   "raw_text":    "...",            # decoded text; None for non-text formats
   "sheet_name":  "Sheet1",        # active sheet; None for non-spreadsheets
+  "sheet_names": ["Sheet1"],      # all sheet names; None for non-spreadsheets
   "original_rows":    847,         # row count including header
   "original_columns": 12,
   "warnings":    []                # list of advisory strings

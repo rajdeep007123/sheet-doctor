@@ -6,6 +6,29 @@ All notable changes to sheet-doctor are documented here.
 
 ## [Unreleased]
 
+### Added
+- **`web/app.py`** — local Streamlit UI:
+  - Upload local files or paste public file URLs, enter a plain-English prompt, preview the parsed table, and run diagnose or make-readable flows
+  - Routes text/JSON formats to `csv-doctor`, modern Excel workbooks to `excel-doctor`, and falls back to loader-based readable export for `.xls` / `.ods`
+  - Exposes sheet selection / consolidation controls for workbook preview in the UI
+  - Supports sequential batch processing with in-app status/progress and per-file download buttons
+- **`tests/test_loader.py`** — regression coverage for the universal loader:
+  - Local behavior tests for strict `.txt` rejection and explicit multi-sheet workbook selection in non-interactive mode
+  - Public corpus integration tests covering `.csv`, `.tsv`, `.xlsx`, `.xls`, `.xlsm`, `.ods`, `.json`, `.jsonl`, plus corrupt `.xls` failure handling
+
+### Changed
+- **`requirements.txt`** — added `streamlit` and `requests` for the local UI layer and public-file URL imports
+- **`csv-doctor` / `loader.py`** — tightened file-loading contract:
+  - `.txt` files now raise a clear error when they are plain text rather than delimited/tabular data
+  - Multi-sheet `.xlsx`, `.xls`, and `.ods` files now require explicit `sheet_name` selection in non-interactive mode; `consolidate_sheets=True` is allowed only when columns match
+  - Successful spreadsheet loads now include `sheet_names` in the result dict
+  - Workbook metadata reads now close file handles cleanly to avoid resource warnings in batch/test runs
+- **`web/app.py`** — improved UI behavior:
+  - Disabled upload/URL inputs only during active processing, not immediately after file selection
+  - Removed Streamlit's top decoration/status strip and replaced it with an in-app loader message
+  - Added public URL rewriting for GitHub, Dropbox, Google Drive, OneDrive, and Box share links
+- **Docs** — README, SKILL, and CONTRIBUTING updated to match the stricter loader behavior, test command, and current UI capabilities
+
 ---
 
 ## [0.4.1] — 2026-02-28

@@ -66,6 +66,9 @@ python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv
 
 # excel-doctor
 python skills/excel-doctor/scripts/diagnose.py sample-data/messy_sample.xlsx
+
+# loader regression tests
+python -m unittest discover -s tests -v
 ```
 
 If you're adding a new skill, add a matching sample file to `sample-data/` with a `generate_*.py` script so others can reproduce it.
@@ -99,6 +102,8 @@ Healer scripts are optional but follow this pattern:
 - Optional dependencies (`xlrd`, `odfpy`) must fail with a clear `ImportError` message pointing to the install command
 - Interactive prompts go to `stderr`; only data goes to `stdout`
 - Check `sys.stdin.isatty()` before calling `input()` — scripts are often run as subprocesses by Claude Code
+- In non-interactive mode, multi-sheet spreadsheets must require an explicit `sheet_name` or `consolidate_sheets=True`; never silently pick the first sheet
+- `.txt` files that are not clearly delimited/tabular must raise a clear error instead of returning a misleading one-column DataFrame
 
 ---
 

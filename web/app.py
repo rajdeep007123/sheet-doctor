@@ -1,0 +1,834 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import importlib.util
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+import pandas as pd
+import requests
+import streamlit as st
+
+
+ROOT = Path(__file__).resolve().parent.parent
+CSV_DIAGNOSE = ROOT / "skills" / "csv-doctor" / "scripts" / "diagnose.py"
+CSV_HEAL = ROOT / "skills" / "csv-doctor" / "scripts" / "heal.py"
+EXCEL_DIAGNOSE = ROOT / "skills" / "excel-doctor" / "scripts" / "diagnose.py"
+EXCEL_HEAL = ROOT / "skills" / "excel-doctor" / "scripts" / "heal.py"
+LOADER_PATH = ROOT / "skills" / "csv-doctor" / "scripts" / "loader.py"
+
+TEXTUAL_EXTS = {".csv", ".tsv", ".txt", ".json", ".jsonl"}
+MODERN_EXCEL_EXTS = {".xlsx", ".xlsm"}
+LEGACY_PREVIEW_EXTS = {".xls", ".ods"}
+WORKBOOK_EXTS = MODERN_EXCEL_EXTS | LEGACY_PREVIEW_EXTS
+SUPPORTED_EXTS = TEXTUAL_EXTS | WORKBOOK_EXTS
+MAX_REMOTE_FILE_MB = 100
+
+
+@st.cache_resource(show_spinner=False)
+def load_loader_module():
+    spec = importlib.util.spec_from_file_location("sheet_doctor_loader", LOADER_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+LOADER = load_loader_module()
+
+
+def ensure_state() -> None:
+    st.session_state.setdefault("processing", False)
+    st.session_state.setdefault("job", [])
+    st.session_state.setdefault("results", [])
+    st.session_state.setdefault(
+        "prompt_input",
+        "Make this readable for humans, keep what can be saved, and clearly show what still needs manual review.",
+    )
+    st.session_state.setdefault("public_urls_input", "")
+
+
+def infer_intent(prompt: str) -> str:
+    text = prompt.lower().strip()
+    heal_markers = [
+        "fix",
+        "clean",
+        "heal",
+        "repair",
+        "readable",
+        "understandable",
+        "make sense",
+        "human",
+        "organize",
+        "organise",
+    ]
+    diagnose_markers = [
+        "diagnose",
+        "check",
+        "analyze",
+        "analyse",
+        "inspect",
+        "what is wrong",
+        "what's wrong",
+        "why",
+    ]
+    heal_score = sum(marker in text for marker in heal_markers)
+    diagnose_score = sum(marker in text for marker in diagnose_markers)
+    return "Make Readable" if heal_score >= diagnose_score else "Diagnose Only"
+
+
+def run_script(script: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(script), *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def normalize_public_url(raw_url: str) -> str:
+    parsed = urlparse(raw_url.strip())
+    if not parsed.scheme:
+        raise ValueError("URL must start with http:// or https://")
+
+    host = parsed.netloc.lower()
+    path = parsed.path
+    query = parse_qs(parsed.query, keep_blank_values=True)
+
+    if host == "github.com" and "/blob/" in path:
+        owner_repo, blob_path = path.lstrip("/").split("/blob/", 1)
+        owner, repo = owner_repo.split("/", 1)
+        branch, file_path = blob_path.split("/", 1)
+        return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
+
+    if "dropbox.com" in host:
+        query["dl"] = ["1"]
+        return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
+
+    if "box.com" in host:
+        query["download"] = ["1"]
+        return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
+
+    if host in {"drive.google.com", "docs.google.com"}:
+        match = re.search(r"/file/d/([^/]+)", path)
+        if match:
+            return f"https://drive.google.com/uc?export=download&id={match.group(1)}"
+        if "id" in query:
+            return f"https://drive.google.com/uc?export=download&id={query['id'][0]}"
+
+    if host.endswith("1drv.ms") or "onedrive.live.com" in host:
+        query["download"] = ["1"]
+        return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
+
+    return raw_url.strip()
+
+
+def parse_public_urls(raw_urls: str) -> list[str]:
+    return [line.strip() for line in raw_urls.splitlines() if line.strip()]
+
+
+def remote_filename(raw_url: str, response: requests.Response) -> str:
+    content_disposition = response.headers.get("content-disposition", "")
+    match = re.search(r'filename\\*=UTF-8\'\'([^;]+)|filename="([^"]+)"|filename=([^;]+)', content_disposition, re.I)
+    if match:
+        for group in match.groups():
+            if group:
+                return Path(group.strip().strip('"')).name
+    redirected = response.url or raw_url
+    return Path(urlparse(redirected).path).name or Path(urlparse(raw_url).path).name or "downloaded_file"
+
+
+def fetch_remote_source(raw_url: str, folder: Path) -> dict:
+    url = normalize_public_url(raw_url)
+    response = requests.get(url, timeout=60, allow_redirects=True)
+    response.raise_for_status()
+    content = response.content
+    if len(content) > MAX_REMOTE_FILE_MB * 1024 * 1024:
+        raise ValueError(f"Remote file is larger than {MAX_REMOTE_FILE_MB} MB.")
+
+    filename = remote_filename(raw_url, response)
+    ext = Path(filename).suffix.lower()
+    if ext not in SUPPORTED_EXTS:
+        raise ValueError(f"Unsupported remote file type: {ext or '[missing extension]'}")
+
+    target = folder / filename
+    target.write_bytes(content)
+    return {
+        "name": filename,
+        "ext": ext,
+        "bytes": content,
+        "path": target,
+    }
+
+
+def workbook_sheet_info(path: Path) -> tuple[list[str], bool, Optional[str]]:
+    try:
+        if path.suffix.lower() == ".ods":
+            with pd.ExcelFile(path, engine="odf") as xf:
+                sheet_names = list(xf.sheet_names)
+        else:
+            with pd.ExcelFile(path) as xf:
+                sheet_names = list(xf.sheet_names)
+    except Exception as exc:
+        return [], False, str(exc)
+
+    try:
+        same_columns = LOADER._sheets_same_columns(
+            path,
+            sheet_names,
+            engine="odf" if path.suffix.lower() == ".ods" else None,
+        )
+    except Exception:
+        same_columns = False
+
+    return sheet_names, same_columns, None
+
+
+def load_preview(path: Path, sheet_name: Optional[str] = None, consolidate: Optional[bool] = None) -> dict:
+    return LOADER.load_file(path, sheet_name=sheet_name, consolidate_sheets=consolidate)
+
+
+def create_readable_export(
+    source_path: Path,
+    output_path: Path,
+    prompt: str,
+    sheet_name: Optional[str] = None,
+    consolidate: Optional[bool] = None,
+) -> dict:
+    loaded = load_preview(source_path, sheet_name=sheet_name, consolidate=consolidate)
+    df = loaded["dataframe"].copy()
+
+    clean_columns = []
+    for idx, column in enumerate(df.columns, start=1):
+        text = str(column).strip()
+        clean_columns.append(text or f"column_{idx}")
+    df.columns = clean_columns
+
+    for column in df.columns:
+        df[column] = df[column].map(
+            lambda value: "" if pd.isna(value) else str(value).replace("\r\n", " ").replace("\n", " ").strip()
+        )
+
+    notes = pd.DataFrame(
+        [
+            {"field": "source_file", "value": source_path.name},
+            {"field": "detected_format", "value": loaded["detected_format"]},
+            {"field": "prompt", "value": prompt.strip() or "Make this readable for humans"},
+            {"field": "sheet_name", "value": loaded.get("sheet_name") or ""},
+            {"field": "sheet_names", "value": ", ".join(loaded.get("sheet_names") or [])},
+            {"field": "delimiter", "value": loaded.get("delimiter") or ""},
+            {"field": "warnings", "value": " | ".join(loaded.get("warnings") or [])},
+        ]
+    )
+
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Readable Data")
+        notes.to_excel(writer, index=False, sheet_name="Load Notes")
+
+    return loaded
+
+
+def preview_payload(loaded: dict) -> dict:
+    df = loaded["dataframe"]
+    head = df.head(50).fillna("").astype(str)
+    return {
+        "rows": int(df.shape[0]),
+        "columns": int(df.shape[1]),
+        "detected_format": loaded.get("detected_format"),
+        "sheet_name": loaded.get("sheet_name"),
+        "sheet_names": loaded.get("sheet_names"),
+        "warnings": loaded.get("warnings") or [],
+        "head_records": head.to_dict(orient="records"),
+    }
+
+
+def heal_support_message(ext: str) -> tuple[bool, str]:
+    if ext in TEXTUAL_EXTS:
+        return True, "CSV doctor will heal this into a 3-sheet workbook."
+    if ext in MODERN_EXCEL_EXTS:
+        return True, "Excel doctor will preserve the workbook and add a Change Log."
+    if ext in LEGACY_PREVIEW_EXTS:
+        return True, "Legacy workbook support uses a readable export fallback rather than full workbook healing."
+    return False, "This format is not supported."
+
+
+def inspect_local_bytes(file_bytes: bytes, suffix: str) -> tuple[list[str], bool, Optional[str]]:
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(file_bytes)
+        tmp_path = Path(tmp.name)
+    try:
+        return workbook_sheet_info(tmp_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def inspect_remote_url(url: str) -> tuple[list[str], bool, Optional[str]]:
+    with tempfile.TemporaryDirectory(prefix="sheet_doctor_url_inspect_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        try:
+            remote = fetch_remote_source(url, tmp_path)
+        except Exception as exc:
+            return [], False, str(exc)
+        return workbook_sheet_info(remote["path"])
+
+
+def source_label(item: dict) -> str:
+    return f"{item['name']}  •  URL" if item["source_kind"] == "url" else item["name"]
+
+
+def source_items(uploads, raw_urls: str) -> list[dict]:
+    items = []
+    for upload in uploads or []:
+        items.append(
+            {
+                "name": upload.name,
+                "ext": Path(upload.name).suffix.lower(),
+                "bytes": upload.getvalue(),
+                "source_kind": "upload",
+                "source_label": upload.name,
+            }
+        )
+    for idx, url in enumerate(parse_public_urls(raw_urls)):
+        inferred_name = Path(urlparse(url).path).name or f"remote-file-{idx + 1}"
+        items.append(
+            {
+                "name": inferred_name,
+                "ext": Path(inferred_name).suffix.lower(),
+                "bytes": None,
+                "source_kind": "url",
+                "source_label": url,
+            }
+        )
+    return items
+
+
+def build_job(prompt: str, intent: str, sources: list[dict]) -> list[dict]:
+    jobs = []
+    for idx, source in enumerate(sources):
+        item = {
+            "name": source["name"],
+            "ext": source["ext"],
+            "bytes": source["bytes"],
+            "intent": intent,
+            "prompt": prompt,
+            "sheet_name": None,
+            "consolidate": False,
+            "source_kind": source["source_kind"],
+            "source_label": source["source_label"],
+        }
+        if item["ext"] in WORKBOOK_EXTS:
+            item["sheet_name"] = st.session_state.get(f"sheet_{idx}_{source['source_label']}")
+            item["consolidate"] = bool(st.session_state.get(f"consolidate_{idx}_{source['source_label']}", False))
+        jobs.append(item)
+    return jobs
+
+
+def process_one_item(item: dict, folder: Path) -> dict:
+    if item["source_kind"] == "url":
+        remote = fetch_remote_source(item["source_label"], folder)
+        source_path = remote["path"]
+        item["name"] = remote["name"]
+        item["ext"] = remote["ext"]
+    else:
+        source_path = folder / item["name"]
+        source_path.write_bytes(item["bytes"])
+
+    ext = item["ext"]
+    if ext in WORKBOOK_EXTS and not item.get("sheet_name") and not item.get("consolidate"):
+        sheet_names, _, workbook_error = workbook_sheet_info(source_path)
+        if workbook_error:
+            raise ValueError(f"Could not inspect workbook sheets: {workbook_error}")
+        if len(sheet_names) > 1:
+            item["sheet_name"] = sheet_names[0]
+
+    support_heal, support_message = heal_support_message(ext)
+    result = {
+        "name": item["name"],
+        "ext": ext,
+        "intent": item["intent"],
+        "support_message": support_message,
+        "status": "success",
+        "preview": None,
+        "report": None,
+        "report_type": None,
+        "stdout": "",
+        "stderr": "",
+        "download_name": None,
+        "download_bytes": None,
+        "messages": [],
+    }
+
+    preview_loaded = load_preview(
+        source_path,
+        sheet_name=item.get("sheet_name") if not item.get("consolidate") else None,
+        consolidate=item.get("consolidate"),
+    )
+    result["preview"] = preview_payload(preview_loaded)
+    result["messages"].extend(preview_loaded.get("warnings") or [])
+
+    if item["intent"] == "Diagnose Only":
+        if ext in TEXTUAL_EXTS:
+            completed = run_script(CSV_DIAGNOSE, str(source_path))
+            result["stdout"] = completed.stdout.strip()
+            result["stderr"] = completed.stderr.strip()
+            if completed.returncode != 0:
+                result["status"] = "error"
+                result["messages"].append(result["stdout"] or result["stderr"] or "Diagnosis failed.")
+                return result
+            result["report"] = json.loads(completed.stdout)
+            result["report_type"] = "csv"
+            return result
+
+        if ext in MODERN_EXCEL_EXTS:
+            completed = run_script(EXCEL_DIAGNOSE, str(source_path))
+            result["stdout"] = completed.stdout.strip()
+            result["stderr"] = completed.stderr.strip()
+            if completed.returncode != 0:
+                result["status"] = "error"
+                result["messages"].append(result["stdout"] or result["stderr"] or "Diagnosis failed.")
+                return result
+            result["report"] = json.loads(completed.stdout)
+            result["report_type"] = "excel"
+            return result
+
+        result["status"] = "info"
+        result["messages"].append("Structured diagnose is not wired for this format yet. Preview is available.")
+        return result
+
+    if not support_heal:
+        result["status"] = "error"
+        result["messages"].append("This format is not supported.")
+        return result
+
+    output_name = f"{source_path.stem}_readable.xlsx"
+    output_path = folder / output_name
+
+    if ext in TEXTUAL_EXTS:
+        completed = run_script(CSV_HEAL, str(source_path), str(output_path))
+        result["stdout"] = completed.stdout.strip()
+        result["stderr"] = completed.stderr.strip()
+        if completed.returncode != 0:
+            result["status"] = "error"
+            result["messages"].append(result["stdout"] or result["stderr"] or "Healing failed.")
+            return result
+    elif ext in MODERN_EXCEL_EXTS:
+        completed = run_script(EXCEL_HEAL, str(source_path), str(output_path))
+        result["stdout"] = completed.stdout.strip()
+        result["stderr"] = completed.stderr.strip()
+        if completed.returncode != 0:
+            result["status"] = "error"
+            result["messages"].append(result["stdout"] or result["stderr"] or "Healing failed.")
+            return result
+    else:
+        loaded = create_readable_export(
+            source_path,
+            output_path,
+            prompt=item["prompt"],
+            sheet_name=item.get("sheet_name") if not item.get("consolidate") else None,
+            consolidate=item.get("consolidate"),
+        )
+        result["stdout"] = "Readable export created."
+        result["messages"].extend(loaded.get("warnings") or [])
+
+    result["download_name"] = output_name
+    result["download_bytes"] = output_path.read_bytes()
+    return result
+
+
+def process_job(items: list[dict]) -> list[dict]:
+    results = []
+    status_box = st.empty()
+    progress_box = st.empty()
+    progress = progress_box.progress(0.0, text="Preparing files...")
+
+    with tempfile.TemporaryDirectory(prefix="sheet_doctor_ui_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        total = len(items)
+        for idx, item in enumerate(items, start=1):
+            status_box.markdown(
+                f"""
+                <div class="work-status">
+                    <div class="work-status__spinner"></div>
+                    <div>
+                        <div class="work-status__title">Working on {item['name']}</div>
+                        <div class="work-status__text">File {idx} of {total}. Please be patient while the file is analyzed and prepared.</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            try:
+                results.append(process_one_item(item, tmp_path))
+            except Exception as exc:
+                results.append(
+                    {
+                        "name": item["name"],
+                        "ext": item["ext"],
+                        "intent": item["intent"],
+                        "support_message": "",
+                        "status": "error",
+                        "preview": None,
+                        "report": None,
+                        "report_type": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "download_name": None,
+                        "download_bytes": None,
+                        "messages": [str(exc)],
+                    }
+                )
+            progress.progress(idx / total, text=f"Processed {idx} of {total} file(s)")
+
+    status_box.empty()
+    progress_box.empty()
+    return results
+
+
+def render_csv_report(report: dict) -> None:
+    summary = report.get("summary", {})
+    st.markdown(
+        f"**Verdict:** `{summary.get('verdict', 'UNKNOWN')}`  \n"
+        f"**Issues found:** `{summary.get('issue_count', 0)}`"
+    )
+    st.json(report)
+
+
+def render_excel_report(report: dict) -> None:
+    summary = report.get("summary", {})
+    st.markdown(
+        f"**Verdict:** `{summary.get('verdict', 'UNKNOWN')}`  \n"
+        f"**Issues found:** `{summary.get('issue_count', 0)}`  \n"
+        f"**Categories triggered:** `{summary.get('issue_categories_triggered', 0)}`"
+    )
+    st.json(report)
+
+
+def render_preview(preview: dict) -> None:
+    left, right = st.columns(2)
+    left.metric("Rows", preview["rows"])
+    left.metric("Columns", preview["columns"])
+    right.metric("Format", preview.get("detected_format") or "-")
+    right.metric("Sheet", preview.get("sheet_name") or "-")
+    if preview.get("warnings"):
+        st.warning(" | ".join(preview["warnings"]))
+    if preview.get("head_records"):
+        st.dataframe(pd.DataFrame(preview["head_records"]), width="stretch")
+    else:
+        st.info("No table rows were loaded for preview.")
+
+
+def render_results() -> None:
+    results = st.session_state.get("results") or []
+    if not results:
+        return
+
+    st.subheader("Results")
+    metrics = st.columns(3)
+    metrics[0].metric("Files processed", len(results))
+    metrics[1].metric("Downloads ready", sum(1 for item in results if item.get("download_bytes")))
+    metrics[2].metric("Needs review", sum(1 for item in results if item["status"] != "success"))
+
+    for item in results:
+        with st.expander(f"{item['name']}  •  {item['status'].upper()}", expanded=item["status"] != "success"):
+            st.caption(item["support_message"])
+            for message in item.get("messages", []):
+                if item["status"] == "error":
+                    st.error(message)
+                elif item["status"] == "info":
+                    st.info(message)
+                else:
+                    st.warning(message)
+            if item.get("preview"):
+                render_preview(item["preview"])
+            if item.get("report"):
+                if item["report_type"] == "csv":
+                    render_csv_report(item["report"])
+                elif item["report_type"] == "excel":
+                    render_excel_report(item["report"])
+            if item.get("stdout"):
+                st.code(item["stdout"])
+            if item.get("download_bytes") and item.get("download_name"):
+                st.download_button(
+                    "Download fixed file",
+                    data=item["download_bytes"],
+                    file_name=item["download_name"],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    width="stretch",
+                    key=f"download_{item['name']}_{item['status']}",
+                )
+
+
+def set_visuals() -> None:
+    st.set_page_config(page_title="sheet-doctor UI", page_icon="🩺", layout="wide", initial_sidebar_state="collapsed")
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        :root {
+            --qt-bg: #ffffff;
+            --qt-bg-secondary: #fafafe;
+            --qt-surface: rgba(255, 255, 255, 0.96);
+            --qt-surface-strong: rgba(250, 250, 254, 1);
+            --qt-text: #2a2a32;
+            --qt-text-secondary: #5a5a70;
+            --qt-text-muted: #8b8ba3;
+            --qt-border: #e8e8f0;
+            --qt-border-strong: #d6d6e1;
+            --qt-primary: #9d72ff;
+            --qt-primary-strong: #8b4cf7;
+            --qt-primary-deep: #7c3aed;
+            --qt-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.10), 0 10px 10px -5px rgba(99, 102, 241, 0.04);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --qt-bg: #1a1a1a;
+                --qt-bg-secondary: #22222b;
+                --qt-surface: rgba(36, 36, 48, 0.96);
+                --qt-surface-strong: rgba(30, 30, 39, 1);
+                --qt-text: #f4f4f8;
+                --qt-text-secondary: #d6d6e1;
+                --qt-text-muted: #aeaec0;
+                --qt-border: rgba(66, 66, 79, 0.8);
+                --qt-border-strong: #5a5a70;
+                --qt-primary: #b89fff;
+                --qt-primary-strong: #9d72ff;
+                --qt-primary-deep: #8b4cf7;
+            }
+        }
+        .stApp {
+            background: linear-gradient(180deg, var(--qt-bg) 0%, var(--qt-bg-secondary) 100%);
+            color: var(--qt-text);
+            font-family: "Inter", system-ui, sans-serif;
+        }
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            max-width: 1200px;
+        }
+        [data-testid="stDecoration"], [data-testid="stStatusWidget"] {
+            display: none !important;
+        }
+        [data-testid="stHeader"], [data-testid="stAppViewContainer"] {
+            background: transparent;
+        }
+        h1, h2, h3, p, label, .stCaption, .stMarkdown, .stText, .stRadio, .stMetric, .stAlert {
+            font-family: "Inter", system-ui, sans-serif;
+            color: var(--qt-text);
+        }
+        code, pre, .stCode, .stJson {
+            font-family: "JetBrains Mono", monospace !important;
+        }
+        .doctor-panel {
+            background: var(--qt-surface);
+            border: 1px solid var(--qt-border);
+            border-radius: 24px;
+            padding: 1.25rem 1.25rem 0.75rem;
+            box-shadow: var(--qt-shadow);
+        }
+        .queue-note {
+            margin: 0.4rem 0 1rem;
+            color: var(--qt-text-muted);
+            font-size: 0.95rem;
+        }
+        .work-status {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+            padding: 0.95rem 1rem;
+            margin: 0.75rem 0 1rem;
+            background: var(--qt-surface-strong);
+            border: 1px solid var(--qt-border);
+            border-radius: 18px;
+        }
+        .work-status__spinner {
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            border: 3px solid rgba(157, 114, 255, 0.20);
+            border-top-color: var(--qt-primary);
+            animation: spin 0.85s linear infinite;
+            flex: 0 0 auto;
+        }
+        .work-status__title {
+            font-weight: 600;
+            color: var(--qt-text);
+        }
+        .work-status__text {
+            color: var(--qt-text-secondary);
+            font-size: 0.94rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .stTextArea textarea,
+        .stTextInput input,
+        .stSelectbox div[data-baseweb="select"] > div {
+            background: var(--qt-surface-strong) !important;
+            color: var(--qt-text) !important;
+            border: 1px solid var(--qt-border) !important;
+            border-radius: 16px !important;
+        }
+        .stFileUploader section {
+            background: var(--qt-surface-strong);
+            border: 1px dashed var(--qt-border-strong);
+            border-radius: 18px;
+        }
+        .stButton > button, .stDownloadButton > button {
+            border-radius: 999px !important;
+            border: 1px solid transparent !important;
+            background: linear-gradient(135deg, var(--qt-primary) 0%, var(--qt-primary-strong) 100%) !important;
+            color: #ffffff !important;
+            font-weight: 600 !important;
+        }
+        .stButton > button:disabled {
+            opacity: 0.55 !important;
+        }
+        .stRadio [role="radiogroup"] { gap: 0.5rem; }
+        .stRadio [role="radiogroup"] label {
+            background: var(--qt-surface-strong);
+            border: 1px solid var(--qt-border);
+            border-radius: 999px;
+            padding: 0.4rem 0.8rem;
+        }
+        [data-testid="stMetric"] {
+            background: var(--qt-surface-strong);
+            border: 1px solid var(--qt-border);
+            border-radius: 18px;
+            padding: 0.85rem 1rem;
+        }
+        .stExpander, .stAlert, .stDataFrame, .stTable, .stJson {
+            border-radius: 18px;
+            border: 1px solid var(--qt-border) !important;
+            overflow: hidden;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_file_configuration(sources: list[dict], disabled: bool) -> None:
+    if not sources:
+        return
+
+    count = len(sources)
+    st.markdown(
+        f'<div class="queue-note">{count} file(s) selected. They will be processed sequentially and each finished file will get its own download button.</div>',
+        unsafe_allow_html=True,
+    )
+    if count > 10:
+        st.warning("Large batch detected. Processing will run one file at a time to keep the session stable.")
+
+    for idx, item in enumerate(sources):
+        ext = item["ext"]
+        support_heal, support_message = heal_support_message(ext)
+        with st.expander(source_label(item), expanded=idx == 0 and count <= 3):
+            st.caption(support_message)
+            if ext and ext not in SUPPORTED_EXTS:
+                st.error(f"Unsupported format: {ext}")
+                continue
+            if ext not in WORKBOOK_EXTS:
+                continue
+
+            if item["source_kind"] == "url":
+                sheet_names, same_columns, workbook_error = inspect_remote_url(item["source_label"])
+            else:
+                sheet_names, same_columns, workbook_error = inspect_local_bytes(item["bytes"], ext)
+
+            if workbook_error:
+                st.error(f"Could not inspect workbook sheets: {workbook_error}")
+                continue
+
+            st.write(f"Sheets found: {', '.join(sheet_names)}")
+            consolidate_key = f"consolidate_{idx}_{item['source_label']}"
+            sheet_key = f"sheet_{idx}_{item['source_label']}"
+
+            if len(sheet_names) > 1 and same_columns:
+                st.checkbox(
+                    f"Consolidate sheets for {item['name']}",
+                    value=False,
+                    key=consolidate_key,
+                    disabled=disabled,
+                )
+            else:
+                st.session_state[consolidate_key] = False
+
+            st.selectbox(
+                f"Sheet to use for {item['name']}",
+                options=sheet_names,
+                index=0,
+                key=sheet_key,
+                disabled=disabled or bool(st.session_state.get(consolidate_key, False)),
+            )
+
+
+def main() -> None:
+    set_visuals()
+    ensure_state()
+
+    st.title("sheet-doctor")
+    st.caption("Upload files or paste public file URLs, describe what you want, and get either a diagnosis or a human-readable output workbook.")
+
+    processing = st.session_state["processing"]
+
+    with st.container():
+        st.markdown('<div class="doctor-panel">', unsafe_allow_html=True)
+        prompt = st.text_area("What do you want done?", key="prompt_input", height=110, disabled=processing)
+        st.file_uploader(
+            "Upload files",
+            type=[ext.lstrip(".") for ext in sorted(SUPPORTED_EXTS)],
+            accept_multiple_files=True,
+            key="uploads_input",
+            disabled=processing,
+        )
+        st.text_area(
+            "Public file URLs",
+            key="public_urls_input",
+            height=110,
+            disabled=processing,
+            placeholder="One public file URL per line. Supports direct links and common public share links from GitHub, Dropbox, Google Drive, OneDrive, Box, and similar hosts.",
+        )
+
+        sources = source_items(st.session_state.get("uploads_input") or [], st.session_state.get("public_urls_input", ""))
+        if sources:
+            render_file_configuration(sources, disabled=processing)
+
+        default_intent = infer_intent(prompt)
+        intent = st.radio(
+            "Intent",
+            options=["Make Readable", "Diagnose Only"],
+            index=0 if default_intent == "Make Readable" else 1,
+            horizontal=True,
+            key="intent_input",
+            disabled=processing,
+        )
+        submit = st.button("Run", type="primary", width="stretch", disabled=processing or not sources)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if submit and sources:
+        st.session_state["job"] = build_job(prompt, intent, sources)
+        st.session_state["results"] = []
+        st.session_state["processing"] = True
+        st.rerun()
+
+    if st.session_state["processing"]:
+        st.info("The system is working on the uploaded files. Please be patient.")
+        st.session_state["results"] = process_job(st.session_state["job"])
+        st.session_state["processing"] = False
+        st.session_state["job"] = []
+        st.rerun()
+
+    if not st.session_state.get("results"):
+        st.info("Supported here: local uploads or public file URLs for .csv .tsv .txt .xlsx .xls .xlsm .ods .json .jsonl")
+        return
+
+    render_results()
+
+
+if __name__ == "__main__":
+    main()

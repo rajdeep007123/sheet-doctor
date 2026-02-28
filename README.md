@@ -14,11 +14,12 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 
 | Skill | Scripts | What it does |
 |---|---|---|
-| `csv-doctor` | `loader.py` | Universal file loader — reads `.csv .tsv .txt .xlsx .xls .xlsm .ods .json .jsonl` into a clean DataFrame with encoding detection, delimiter sniffing, and multi-sheet handling |
+| `csv-doctor` | `loader.py` | Universal file loader — reads `.csv .tsv .txt .xlsx .xls .xlsm .ods .json .jsonl` into a pandas DataFrame with encoding detection, delimiter sniffing, and explicit multi-sheet handling |
 | `csv-doctor` | `diagnose.py` | Encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers |
 | `csv-doctor` | `heal.py` | Schema-aware healing (generic + finance mode) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) |
 | `excel-doctor` | `diagnose.py` | Deep Excel diagnostics: sheet inventory, merged cells, formula errors/cache misses, mixed types, duplicate/whitespace headers, structural rows, sparse columns |
 | `excel-doctor` | `heal.py` | Safe workbook fixes: unmerge ranges, standardise/dedupe headers, clean text/date values, remove empty rows, append Change Log |
+| `web` | `app.py` | Local Streamlit UI — upload files or paste public file URLs, describe what you want, preview the table, and download a human-readable workbook |
 
 More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 
@@ -32,7 +33,7 @@ More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 |--------|-------|
 | `.csv` | Delimiter auto-detected (comma, tab, pipe, semicolon) |
 | `.tsv` | Tab-separated |
-| `.txt` | Sniffed like `.csv` |
+| `.txt` | Sniffed like `.csv`; rejects plain-text files that are not tabular |
 | `.xlsx` | Excel (modern) |
 | `.xls` | Excel (legacy) — requires `pip install xlrd` |
 | `.xlsm` | Excel macro-enabled — macros ignored, data loaded |
@@ -42,7 +43,7 @@ More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 
 For files with **mixed encodings** (Latin-1 and UTF-8 bytes on different rows), the loader decodes line-by-line and never crashes.
 
-For **Excel files with multiple sheets**, the loader prompts you to pick a sheet or consolidate them, and falls back silently to the first sheet when running non-interactively.
+For **Excel/ODS files with multiple sheets**, the loader prompts you to pick a sheet in interactive sessions. In non-interactive/API use, it requires `sheet_name=...` or `consolidate_sheets=True` and raises a clear error listing the available sheets.
 
 ---
 
@@ -74,7 +75,15 @@ pip install xlrd    # .xls legacy Excel files
 pip install odfpy  # .ods OpenDocument files
 ```
 
-**3. Register the skills with Claude Code**
+**3. Run the loader tests**
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The test suite covers strict `.txt` rejection, multi-sheet workbook selection rules, and integration checks against public sample corpora when those fixtures are available locally.
+
+**4. Register the skills with Claude Code**
 
 Copy the skill folders into your Claude Code skills directory:
 
@@ -90,7 +99,7 @@ ln -s "$(pwd)/skills/csv-doctor" ~/.claude/skills/csv-doctor
 ln -s "$(pwd)/skills/excel-doctor" ~/.claude/skills/excel-doctor
 ```
 
-**4. Run it**
+**5. Run it**
 
 In any Claude Code session:
 
@@ -100,6 +109,34 @@ In any Claude Code session:
 ```
 
 Or just drop a file in and say: *"diagnose this CSV"* / *"fix my spreadsheet"*
+
+**6. Run the local UI**
+
+```bash
+streamlit run web/app.py
+```
+
+What the UI currently does:
+- Upload many files in one batch
+- Paste public file URLs one per line
+- Add a plain-English prompt like "make this readable for humans"
+- Preview the loaded table before acting
+- Route to diagnose or heal flows
+- Process files sequentially with an in-app progress loader
+- Download a readable `.xlsx` output
+
+Current UI healing matrix:
+- `.csv .tsv .txt .json .jsonl` → `csv-doctor/heal.py`
+- `.xlsx .xlsm` → `excel-doctor/heal.py`
+- `.xls .ods` → loader-based readable export fallback (preview + clean workbook export, not full workbook-preserving heal)
+
+Public URL support:
+- GitHub file URLs (`blob` links are rewritten to raw)
+- Dropbox public links
+- Google Drive public file links
+- OneDrive public links
+- Box public links
+- Other direct public file URLs that return the file itself
 
 ---
 

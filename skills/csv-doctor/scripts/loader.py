@@ -16,6 +16,7 @@ Result dict keys:
     delimiter         — delimiter char for text files; None otherwise
     raw_text          — decoded text for text files; None otherwise
     sheet_name        — active sheet name for spreadsheets; None otherwise
+    sheet_names       — all available sheet names for spreadsheets; None otherwise
     original_rows     — row count including header row
     original_columns  — column count
     warnings          — list of warning strings
@@ -171,6 +172,52 @@ def _detect_delimiter(text: str) -> str:
     return best_delim
 
 
+def _sample_delimited_rows(text: str, delimiter: str, limit: int = 50) -> list[list[str]]:
+    """Parse a sample of non-empty lines using the given delimiter."""
+    sample_lines = [line for line in text.splitlines() if line.strip()][:limit]
+    return [
+        row
+        for row in csv.reader(io.StringIO("\n".join(sample_lines)), delimiter=delimiter)
+        if any(cell.strip() for cell in row)
+    ]
+
+
+def _validate_txt_table(text: str, delimiter: str) -> None:
+    """
+    Reject plain-text .txt files that are not actually delimited/tabular data.
+
+    The loader should not report success for prose or notes files that only
+    happen to end in .txt.
+    """
+    rows = _sample_delimited_rows(text, delimiter)
+    if len(rows) < 2:
+        raise ValueError(
+            ".txt file does not appear to contain delimited/tabular data "
+            "(need at least 2 non-empty rows)"
+        )
+
+    multi_field_rows = sum(1 for row in rows if len(row) > 1)
+    if multi_field_rows < 2:
+        raise ValueError(
+            ".txt file does not appear to contain delimited/tabular data "
+            f"(detected delimiter {delimiter!r} but fewer than 2 rows contain multiple fields)"
+        )
+
+
+def _sheet_selection_message(
+    all_sheets: list[str],
+    same_columns: bool,
+    suffix: str,
+) -> str:
+    action = "pass sheet_name='...'"
+    if same_columns:
+        action += " or consolidate_sheets=True"
+    return (
+        f"Multiple sheets found in {suffix} workbook; {action}. "
+        f"Available sheets: {all_sheets}"
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # INTERACTIVE SHEET SELECTION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -186,12 +233,8 @@ def _prompt_sheet_choice(
         (sheet_name, consolidate)
         sheet_name is None when consolidating all sheets.
 
-    Falls back silently to the first sheet when stdin is not a TTY
-    (e.g. when called by Claude Code as a subprocess).
+    Caller must ensure stdin is interactive before using this helper.
     """
-    if not sys.stdin.isatty():
-        return sheet_names[0], False
-
     print(f"\nFound {len(sheet_names)} sheets:", file=sys.stderr)
     for i, name in enumerate(sheet_names, 1):
         print(f"  {i}. {name}", file=sys.stderr)
@@ -245,6 +288,9 @@ def _load_text(path: Path, suffix: str) -> dict:
     else:
         delimiter = _detect_delimiter(text)
 
+    if suffix == ".txt":
+        _validate_txt_table(text, delimiter)
+
     sep = r"\|" if delimiter == "|" else delimiter
     try:
         df = pd.read_csv(
@@ -265,20 +311,25 @@ def _load_text(path: Path, suffix: str) -> dict:
         "delimiter":        delimiter,
         "raw_text":         text,
         "sheet_name":       None,
+        "sheet_names":      None,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
         "warnings":         [],
     }
 
 
-def _sheets_same_columns(path: Path, names: list[str]) -> bool:
+def _sheets_same_columns(
+    path: Path,
+    names: list[str],
+    engine: Optional[str] = None,
+) -> bool:
     """Return True when every listed sheet has identical column headers."""
     import pandas as pd
 
     header_sets: list[tuple] = []
     for name in names:
         try:
-            df = pd.read_excel(path, sheet_name=name, nrows=0, dtype=str)
+            df = pd.read_excel(path, sheet_name=name, nrows=0, dtype=str, engine=engine)
             header_sets.append(tuple(df.columns.tolist()))
         except Exception:
             pass
@@ -297,7 +348,8 @@ def _load_excel(
     When multiple sheets exist:
       - If sheet_name is given, load that sheet.
       - If consolidate_sheets is True and all sheets share columns, concatenate.
-      - Otherwise prompt the user (or silently pick the first sheet).
+      - Otherwise prompt the user, or require explicit selection in
+        non-interactive mode.
     """
     import pandas as pd
 
@@ -313,11 +365,10 @@ def _load_excel(
             )
 
     try:
-        xf = pd.ExcelFile(path)
+        with pd.ExcelFile(path) as xf:
+            all_sheets = list(xf.sheet_names)
     except Exception as exc:
         raise ValueError(f"Could not open workbook: {exc}") from exc
-
-    all_sheets = xf.sheet_names
 
     if len(all_sheets) == 1:
         chosen_name = all_sheets[0]
@@ -334,29 +385,26 @@ def _load_excel(
         same_cols   = _sheets_same_columns(path, all_sheets)
         consolidate = consolidate_sheets  # might be None
 
-        if consolidate is None:
-            # Auto-decide: prompt if interactive, else fall back.
-            chosen_name, consolidate = _prompt_sheet_choice(all_sheets, same_cols)
-            if chosen_name is None and not consolidate:
-                # Non-interactive fallback
-                chosen_name = all_sheets[0]
-                warnings.append(
-                    f"Multiple sheets found; used '{chosen_name}'. "
-                    f"Others: {all_sheets[1:]}"
-                )
+        if not sys.stdin.isatty():
+            if consolidate:
+                if not same_cols:
+                    raise ValueError(
+                        "Cannot consolidate workbook sheets with different columns. "
+                        f"Available sheets: {all_sheets}"
+                    )
+                chosen_name = None
+            else:
+                raise ValueError(_sheet_selection_message(all_sheets, same_cols, suffix))
         else:
-            if consolidate and not same_cols:
-                warnings.append(
-                    "consolidate_sheets=True but sheets have different columns; "
-                    "loading first sheet only."
+            if consolidate is None:
+                chosen_name, consolidate = _prompt_sheet_choice(all_sheets, same_cols)
+            elif consolidate and not same_cols:
+                raise ValueError(
+                    "Cannot consolidate workbook sheets with different columns. "
+                    f"Available sheets: {all_sheets}"
                 )
-                consolidate = False
-            if not consolidate:
-                chosen_name = all_sheets[0]
-                warnings.append(
-                    f"Multiple sheets found; used '{chosen_name}'. "
-                    f"Others: {all_sheets[1:]}"
-                )
+            elif not consolidate:
+                chosen_name, consolidate = _prompt_sheet_choice(all_sheets, same_cols)
 
     if consolidate:
         frames = []
@@ -394,6 +442,7 @@ def _load_excel(
         "delimiter":        None,
         "raw_text":         None,
         "sheet_name":       active_sheet,
+        "sheet_names":      all_sheets,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
         "warnings":         warnings,
@@ -422,36 +471,64 @@ def _load_ods(
     warnings: list[str] = []
 
     try:
-        xf = pd.ExcelFile(path, engine="odf")
+        with pd.ExcelFile(path, engine="odf") as xf:
+            all_sheets = list(xf.sheet_names)
     except Exception as exc:
         raise ValueError(f"Could not open .ods file: {exc}") from exc
 
-    all_sheets = xf.sheet_names
-
     if len(all_sheets) == 1:
         chosen_name = all_sheets[0]
+        consolidate = False
     elif sheet_name is not None:
         if sheet_name not in all_sheets:
             raise ValueError(
                 f"Sheet '{sheet_name}' not found in .ods. Available: {all_sheets}"
             )
         chosen_name = sheet_name
+        consolidate = False
     else:
-        # Not interactive — just pick first and warn.
-        if sys.stdin.isatty():
-            chosen_name, _ = _prompt_sheet_choice(all_sheets, same_columns=False)
-            chosen_name = chosen_name or all_sheets[0]
-        else:
-            chosen_name = all_sheets[0]
-            warnings.append(
-                f"Multiple sheets found; used '{chosen_name}'. "
-                f"Others: {all_sheets[1:]}"
-            )
+        same_cols   = _sheets_same_columns(path, all_sheets, engine="odf")
+        consolidate = consolidate_sheets
 
-    try:
-        df = pd.read_excel(path, sheet_name=chosen_name, engine="odf", dtype=str)
-    except Exception as exc:
-        raise ValueError(f"Could not load sheet '{chosen_name}': {exc}") from exc
+        if not sys.stdin.isatty():
+            if consolidate:
+                if not same_cols:
+                    raise ValueError(
+                        "Cannot consolidate .ods sheets with different columns. "
+                        f"Available sheets: {all_sheets}"
+                    )
+                chosen_name = None
+            else:
+                raise ValueError(_sheet_selection_message(all_sheets, same_cols, ".ods"))
+        else:
+            if consolidate is None:
+                chosen_name, consolidate = _prompt_sheet_choice(all_sheets, same_columns=same_cols)
+            elif consolidate and not same_cols:
+                raise ValueError(
+                    "Cannot consolidate .ods sheets with different columns. "
+                    f"Available sheets: {all_sheets}"
+                )
+            elif not consolidate:
+                chosen_name, consolidate = _prompt_sheet_choice(all_sheets, same_columns=same_cols)
+
+    if consolidate:
+        frames = []
+        for name in all_sheets:
+            try:
+                frames.append(pd.read_excel(path, sheet_name=name, engine="odf", dtype=str))
+            except Exception as exc:
+                warnings.append(f"Could not load sheet '{name}': {exc}")
+        if not frames:
+            raise ValueError("No .ods sheets could be loaded.")
+        df = pd.concat(frames, ignore_index=True)
+        active_sheet = f"[all {len(frames)} sheets]"
+        warnings.append(f"Consolidated {len(frames)} sheets into one table.")
+    else:
+        try:
+            df = pd.read_excel(path, sheet_name=chosen_name, engine="odf", dtype=str)
+        except Exception as exc:
+            raise ValueError(f"Could not load sheet '{chosen_name}': {exc}") from exc
+        active_sheet = chosen_name
 
     return {
         "dataframe":        df,
@@ -460,7 +537,8 @@ def _load_ods(
         "encoding_info":    None,
         "delimiter":        None,
         "raw_text":         None,
-        "sheet_name":       chosen_name,
+        "sheet_name":       active_sheet,
+        "sheet_names":      all_sheets,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
         "warnings":         warnings,
@@ -519,6 +597,7 @@ def _load_json(path: Path) -> dict:
         "delimiter":        None,
         "raw_text":         text,
         "sheet_name":       None,
+        "sheet_names":      None,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
         "warnings":         warnings,
@@ -567,6 +646,7 @@ def _load_jsonl(path: Path) -> dict:
         "delimiter":        None,
         "raw_text":         text,
         "sheet_name":       None,
+        "sheet_names":      None,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
         "warnings":         warnings,
@@ -596,8 +676,8 @@ def load_file(
 
     Returns:
         dict with keys: dataframe, detected_format, detected_encoding,
-        encoding_info, delimiter, raw_text, sheet_name, original_rows,
-        original_columns, warnings.
+        encoding_info, delimiter, raw_text, sheet_name, sheet_names,
+        original_rows, original_columns, warnings.
 
     Raises:
         FileNotFoundError  if the file does not exist.
