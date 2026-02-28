@@ -43,6 +43,7 @@ All notable changes to sheet-doctor are documented here.
   - Upload local files or paste public file URLs, enter a plain-English prompt, preview the parsed table, and run diagnose or make-readable flows
   - Routes text/JSON formats to `csv-doctor`, modern Excel workbooks to `excel-doctor`, and falls back to loader-based readable export for `.xls` / `.ods`
   - Exposes sheet selection / consolidation controls for workbook preview in the UI
+  - Shows workbook interpretation previews before healing, including detected header-band rows, metadata rows removed, effective headers, and chosen semantic columns
   - Supports sequential batch processing with in-app status/progress and per-file download buttons
 - **`tests/test_loader.py`** — regression coverage for the universal loader:
   - Local behavior tests for strict `.txt` rejection and explicit multi-sheet workbook selection in non-interactive mode

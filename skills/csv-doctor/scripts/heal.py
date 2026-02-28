@@ -1440,6 +1440,78 @@ def build_semantic_plan(headers: list[str], raw_rows: list[list[str]], delimiter
     )
 
 
+def inspect_healing_plan(
+    input_path: Path,
+    *,
+    sheet_name: str | None = None,
+    consolidate_sheets: bool | None = None,
+) -> dict:
+    all_rows, delimiter = read_file(
+        input_path,
+        sheet_name=sheet_name,
+        consolidate_sheets=consolidate_sheets,
+    )
+    if not all_rows:
+        raise ValueError("File is empty.")
+
+    header_idx = detect_header_row_index(all_rows)
+    header_band_start = detect_header_band_start_index(all_rows, header_idx)
+    preprocessed_rows, preprocessing_changes = preprocess_rows(all_rows)
+    if not preprocessed_rows:
+        raise ValueError("No usable rows remain after preprocessing.")
+
+    metadata_rows_removed = sum(
+        1 for change in preprocessing_changes if change.column_affected == "[file metadata]"
+    )
+    header_band_merged = any(
+        change.column_affected == "[header band]" for change in preprocessing_changes
+    )
+
+    raw_header = preprocessed_rows[0]
+    if is_schema_specific_header(raw_header):
+        headers = HEADERS[:]
+        mode = "schema-specific"
+        semantic_columns = [
+            {
+                "column_index": idx + 1,
+                "header": header,
+                "role": role,
+                "confidence": 0.99,
+            }
+            for idx, (header, role) in enumerate(
+                zip(
+                    headers,
+                    ["name", "department", "date", "amount", "currency", "category", "status", "notes"],
+                )
+            )
+        ]
+    else:
+        headers, _ = normalise_headers_generic(raw_header)
+        semantic_plan = build_semantic_plan(headers, preprocessed_rows[1:], delimiter)
+        mode = "semantic" if semantic_plan.enabled else "generic"
+        semantic_columns = [
+            {
+                "column_index": idx + 1,
+                "header": headers[idx],
+                "role": role,
+                "confidence": semantic_plan.confidence_by_index.get(idx, 0.0),
+            }
+            for idx, role in sorted(semantic_plan.roles_by_index.items())
+        ]
+
+    return {
+        "delimiter": delimiter,
+        "original_rows_total": len(all_rows),
+        "detected_header_row_number": header_idx + 1,
+        "detected_header_band_rows": list(range(header_band_start + 1, header_idx + 2)),
+        "metadata_rows_removed": metadata_rows_removed,
+        "header_band_merged": header_band_merged,
+        "effective_headers": headers,
+        "healing_mode_candidate": mode,
+        "semantic_columns": semantic_columns,
+    }
+
+
 def split_amount_currency_fields_dynamic(
     row: list[str], row_num: int, headers: list[str], amount_idx: int | None, currency_idx: int | None
 ) -> tuple[list[str], list[Change]]:

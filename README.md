@@ -207,6 +207,7 @@ What the UI currently does:
 - Paste public file URLs one per line
 - Add a plain-English prompt like "make this readable for humans"
 - Preview the loaded table before acting
+- Preview workbook interpretation before healing, including detected header bands and chosen semantic columns
 - Route to diagnose or heal flows
 - Process files sequentially with an in-app progress loader
 - Show source-specific notes for special URL handling such as Google Sheets export

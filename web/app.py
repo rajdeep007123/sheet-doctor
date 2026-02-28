@@ -24,6 +24,7 @@ CSV_HEAL = ROOT / "skills" / "csv-doctor" / "scripts" / "heal.py"
 EXCEL_DIAGNOSE = ROOT / "skills" / "excel-doctor" / "scripts" / "diagnose.py"
 EXCEL_HEAL = ROOT / "skills" / "excel-doctor" / "scripts" / "heal.py"
 LOADER_PATH = ROOT / "skills" / "csv-doctor" / "scripts" / "loader.py"
+HEAL_PATH = ROOT / "skills" / "csv-doctor" / "scripts" / "heal.py"
 
 TEXTUAL_EXTS = {".csv", ".tsv", ".txt", ".json", ".jsonl"}
 MODERN_EXCEL_EXTS = {".xlsx", ".xlsm"}
@@ -43,6 +44,19 @@ def load_loader_module():
 
 
 LOADER = load_loader_module()
+
+
+@st.cache_resource(show_spinner=False)
+def load_heal_module():
+    spec = importlib.util.spec_from_file_location("sheet_doctor_heal_preview", HEAL_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["sheet_doctor_heal_preview"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+HEAL = load_heal_module()
 
 
 def ensure_state() -> None:
@@ -278,6 +292,24 @@ def load_preview(path: Path, sheet_name: Optional[str] = None, consolidate: Opti
     return LOADER.load_file(path, sheet_name=sheet_name, consolidate_sheets=consolidate)
 
 
+def workbook_semantic_info(
+    path: Path,
+    sheet_name: Optional[str] = None,
+    consolidate: Optional[bool] = None,
+) -> tuple[Optional[dict], Optional[str]]:
+    try:
+        return (
+            HEAL.inspect_healing_plan(
+                path,
+                sheet_name=sheet_name,
+                consolidate_sheets=consolidate,
+            ),
+            None,
+        )
+    except Exception as exc:
+        return None, str(exc)
+
+
 def create_readable_export(
     source_path: Path,
     output_path: Path,
@@ -318,7 +350,7 @@ def create_readable_export(
     return loaded
 
 
-def preview_payload(loaded: dict) -> dict:
+def preview_payload(loaded: dict, workbook_semantics: Optional[dict] = None) -> dict:
     df = loaded["dataframe"]
     head = df.head(50).fillna("").astype(str)
     return {
@@ -329,6 +361,7 @@ def preview_payload(loaded: dict) -> dict:
         "sheet_names": loaded.get("sheet_names"),
         "warnings": loaded.get("warnings") or [],
         "head_records": head.to_dict(orient="records"),
+        "workbook_semantics": workbook_semantics,
     }
 
 
@@ -352,6 +385,21 @@ def inspect_local_bytes(file_bytes: bytes, suffix: str) -> tuple[list[str], bool
         tmp_path.unlink(missing_ok=True)
 
 
+def inspect_local_workbook_semantics(
+    file_bytes: bytes,
+    suffix: str,
+    sheet_name: Optional[str] = None,
+    consolidate: Optional[bool] = None,
+) -> tuple[Optional[dict], Optional[str]]:
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(file_bytes)
+        tmp_path = Path(tmp.name)
+    try:
+        return workbook_semantic_info(tmp_path, sheet_name=sheet_name, consolidate=consolidate)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 def inspect_remote_url(url: str) -> tuple[list[str], bool, Optional[str]]:
     with tempfile.TemporaryDirectory(prefix="sheet_doctor_url_inspect_") as tmpdir:
         tmp_path = Path(tmpdir)
@@ -360,6 +408,24 @@ def inspect_remote_url(url: str) -> tuple[list[str], bool, Optional[str]]:
         except Exception as exc:
             return [], False, str(exc)
         return workbook_sheet_info(remote["path"])
+
+
+def inspect_remote_workbook_semantics(
+    url: str,
+    sheet_name: Optional[str] = None,
+    consolidate: Optional[bool] = None,
+) -> tuple[Optional[dict], Optional[str]]:
+    with tempfile.TemporaryDirectory(prefix="sheet_doctor_url_semantic_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        try:
+            remote = fetch_remote_source(url, tmp_path)
+        except Exception as exc:
+            return None, str(exc)
+        return workbook_semantic_info(
+            remote["path"],
+            sheet_name=sheet_name,
+            consolidate=consolidate,
+        )
 
 
 def source_label(item: dict) -> str:
@@ -467,14 +533,27 @@ def process_one_item(item: dict, folder: Path) -> dict:
         "download_name": None,
         "download_bytes": None,
         "messages": [],
+        "workbook_semantics": None,
     }
+
+    workbook_semantics = None
+    if ext in WORKBOOK_EXTS:
+        workbook_semantics, semantic_error = workbook_semantic_info(
+            source_path,
+            sheet_name=item.get("sheet_name") if not item.get("consolidate") else None,
+            consolidate=item.get("consolidate"),
+        )
+        if semantic_error:
+            result["messages"].append(f"Workbook interpretation preview failed: {semantic_error}")
+        else:
+            result["workbook_semantics"] = workbook_semantics
 
     preview_loaded = load_preview(
         source_path,
         sheet_name=item.get("sheet_name") if not item.get("consolidate") else None,
         consolidate=item.get("consolidate"),
     )
-    result["preview"] = preview_payload(preview_loaded)
+    result["preview"] = preview_payload(preview_loaded, workbook_semantics=workbook_semantics)
     result["messages"].extend(preview_loaded.get("warnings") or [])
 
     if item["intent"] == "Diagnose Only":
@@ -626,6 +705,31 @@ def render_preview(preview: dict) -> None:
         st.dataframe(pd.DataFrame(preview["head_records"]), width="stretch")
     else:
         st.info("No table rows were loaded for preview.")
+    if preview.get("workbook_semantics"):
+        render_workbook_semantics(preview["workbook_semantics"])
+
+
+def render_workbook_semantics(inspection: dict) -> None:
+    st.markdown("**Workbook interpretation**")
+    cols = st.columns(4)
+    cols[0].metric("Mode", inspection.get("healing_mode_candidate", "-"))
+    cols[1].metric("Metadata rows", inspection.get("metadata_rows_removed", 0))
+    band_rows = inspection.get("detected_header_band_rows") or []
+    band_label = ", ".join(str(row) for row in band_rows) if band_rows else "-"
+    cols[2].metric("Header band rows", band_label)
+    cols[3].metric("Header merged", "Yes" if inspection.get("header_band_merged") else "No")
+
+    headers = inspection.get("effective_headers") or []
+    if headers:
+        st.caption("Effective headers after workbook interpretation")
+        st.code(" | ".join(headers))
+
+    semantic_columns = inspection.get("semantic_columns") or []
+    if semantic_columns:
+        st.caption("Chosen semantic columns")
+        st.dataframe(pd.DataFrame(semantic_columns), width="stretch", hide_index=True)
+    else:
+        st.info("No confident semantic column mapping was detected for this workbook preview.")
 
 
 def render_results() -> None:
@@ -872,6 +976,27 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
                 key=sheet_key,
                 disabled=disabled or bool(st.session_state.get(consolidate_key, False)),
             )
+
+            selected_sheet = None if st.session_state.get(consolidate_key, False) else st.session_state.get(sheet_key) or sheet_names[0]
+            consolidate = bool(st.session_state.get(consolidate_key, False))
+            if item["source_kind"] == "url":
+                inspection, semantic_error = inspect_remote_workbook_semantics(
+                    item["source_label"],
+                    sheet_name=selected_sheet,
+                    consolidate=consolidate,
+                )
+            else:
+                inspection, semantic_error = inspect_local_workbook_semantics(
+                    item["bytes"],
+                    ext,
+                    sheet_name=selected_sheet,
+                    consolidate=consolidate,
+                )
+
+            if semantic_error:
+                st.info(f"Workbook interpretation unavailable: {semantic_error}")
+            elif inspection:
+                render_workbook_semantics(inspection)
 
 
 def main() -> None:

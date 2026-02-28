@@ -10,6 +10,11 @@ Notes specific to the local `web/app.py` interface live here so UI work can move
 - Public file URL intake alongside local uploads
 - Sequential batch processing with an in-app progress/status loader
 - Per-file download buttons that persist after processing
+- Workbook interpretation previews in the queue and result views:
+  - detected header-band rows
+  - metadata rows removed
+  - effective headers after workbook preprocessing
+  - chosen semantic columns with confidence
 - Public URL rewriting for common share links:
   - GitHub `blob` -> raw file
   - Dropbox -> direct download

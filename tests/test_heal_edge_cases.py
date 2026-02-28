@@ -290,6 +290,29 @@ class HealEdgeCaseTests(unittest.TestCase):
             self.assertEqual(result["clean_data"][1].row[4], "EUR")
             self.assertTrue(any(change.column_affected == "[header band]" for change in result["changelog"]))
 
+    def test_inspect_healing_plan_reports_header_band_and_semantic_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "inspect_workbook.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Transactions"
+            ws.append(["Employee Expense Report - Q3 2023", "", "", "", "", "", "", ""])
+            ws.append(["Employee", "", "Transaction", "", "", "Approval", "", ""])
+            ws.append(["Name", "Division", "Date", "Cost", "Curr", "State", "Comments", ""])
+            ws.append(["ada lovelace", "finance", "15/01/2023", "$1,200 USD", "", "approved", "Taxi", ""])
+            wb.save(path)
+
+            inspection = self.heal.inspect_healing_plan(path, sheet_name="Transactions")
+
+            self.assertEqual(inspection["healing_mode_candidate"], "semantic")
+            self.assertEqual(inspection["metadata_rows_removed"], 1)
+            self.assertTrue(inspection["header_band_merged"])
+            self.assertEqual(inspection["detected_header_band_rows"], [2, 3])
+            self.assertEqual(inspection["effective_headers"][0], "Employee Name")
+            roles = {entry["header"]: entry["role"] for entry in inspection["semantic_columns"]}
+            self.assertEqual(roles["Employee Name"], "name")
+            self.assertEqual(roles["Transaction Date"], "date")
+
 
 if __name__ == "__main__":
     unittest.main()
