@@ -2,7 +2,7 @@
 
 > Designer by heart. Back in code after 8 years. Built this because someone had to — and no one else was doing it for free.
 
-**sheet-doctor** is a free, open-source Claude Code Skills Pack for diagnosing and fixing messy CSV and Excel files. Drop a broken spreadsheet in, get a human-readable health report out. No SaaS subscription. No upload limits. No data leaving your machine.
+**sheet-doctor** is a free, open-source Claude Code Skills Pack for diagnosing and fixing messy spreadsheet files. Drop a broken file in, get a human-readable health report out. No SaaS subscription. No upload limits. No data leaving your machine.
 
 ---
 
@@ -14,12 +14,35 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 
 | Skill | Scripts | What it does |
 |---|---|---|
+| `csv-doctor` | `loader.py` | Universal file loader — reads `.csv .tsv .txt .xlsx .xls .xlsm .ods .json .jsonl` into a clean DataFrame with encoding detection, delimiter sniffing, and multi-sheet handling |
 | `csv-doctor` | `diagnose.py` | Encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers |
 | `csv-doctor` | `heal.py` | Schema-aware healing (generic + finance mode) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) |
 | `excel-doctor` | `diagnose.py` | Deep Excel diagnostics: sheet inventory, merged cells, formula errors/cache misses, mixed types, duplicate/whitespace headers, structural rows, sparse columns |
 | `excel-doctor` | `heal.py` | Safe workbook fixes: unmerge ranges, standardise/dedupe headers, clean text/date values, remove empty rows, append Change Log |
 
 More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
+
+---
+
+## Supported file formats
+
+`csv-doctor` reads all of these — no manual conversion needed:
+
+| Format | Notes |
+|--------|-------|
+| `.csv` | Delimiter auto-detected (comma, tab, pipe, semicolon) |
+| `.tsv` | Tab-separated |
+| `.txt` | Sniffed like `.csv` |
+| `.xlsx` | Excel (modern) |
+| `.xls` | Excel (legacy) — requires `pip install xlrd` |
+| `.xlsm` | Excel macro-enabled — macros ignored, data loaded |
+| `.ods` | OpenDocument spreadsheet — requires `pip install odfpy` |
+| `.json` | Array of objects or nested dict (auto-flattened) |
+| `.jsonl` | JSON Lines — one object per line |
+
+For files with **mixed encodings** (Latin-1 and UTF-8 bytes on different rows), the loader decodes line-by-line and never crashes.
+
+For **Excel files with multiple sheets**, the loader prompts you to pick a sheet or consolidate them, and falls back silently to the first sheet when running non-interactively.
 
 ---
 
@@ -43,6 +66,13 @@ pip install -r requirements.txt
 ```
 
 > On Windows: `.venv\Scripts\activate`
+
+Optional extras for additional formats:
+
+```bash
+pip install xlrd    # .xls legacy Excel files
+pip install odfpy  # .ods OpenDocument files
+```
 
 **3. Register the skills with Claude Code**
 
@@ -115,7 +145,8 @@ skills/
 ├── csv-doctor/
 │   ├── SKILL.md             ← Claude reads this to understand the skill
 │   └── scripts/
-│       ├── diagnose.py      ← analyses the CSV, outputs JSON
+│       ├── loader.py        ← universal file loader (used by both scripts below)
+│       ├── diagnose.py      ← analyses the file, outputs JSON
 │       └── heal.py          ← fixes all issues, writes .xlsx workbook
 └── excel-doctor/
     ├── SKILL.md

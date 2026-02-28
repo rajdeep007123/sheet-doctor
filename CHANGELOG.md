@@ -8,6 +8,33 @@ All notable changes to sheet-doctor are documented here.
 
 ---
 
+## [0.4.0] — 2026-02-28
+
+### Added
+- **`csv-doctor` / `loader.py`** — universal file loader shared by `diagnose.py` and `heal.py`:
+  - Supports 9 formats: `.csv`, `.tsv`, `.txt`, `.xlsx`, `.xls`, `.xlsm`, `.ods`, `.json`, `.jsonl`
+  - Encoding detection via chardet + line-by-line fallback chain (UTF-8 → detected encoding → Latin-1 → CP1252 with replace) — never crashes on encoding
+  - Delimiter auto-detection via `csv.Sniffer` with fallback scoring (comma, tab, pipe, semicolon)
+  - Multi-sheet Excel/ODS: prompts user interactively when a TTY is attached; silently picks first sheet with a warning when running as a subprocess
+  - Consolidation option: when all sheets share the same columns, offers to merge them into one DataFrame
+  - JSON support: array of objects → DataFrame directly; nested dict → finds first list key and uses it; single object → one-row table
+  - JSON Lines support: parses each line independently, skips blanks and bad lines with warnings
+  - Returns a standard dict: `dataframe`, `detected_format`, `detected_encoding`, `encoding_info`, `delimiter`, `raw_text`, `sheet_name`, `original_rows`, `original_columns`, `warnings`
+
+### Changed
+- **`csv-doctor` / `diagnose.py`** — refactored to use `loader.py` for all file I/O:
+  - Removed: `detect_encoding()`, `read_csv_text_safely()`, `detect_delimiter()`, `load_pandas_df()` (all now in `loader.py`)
+  - `check_date_formats()` and `check_columns_quality()` now accept a pandas DataFrame directly instead of rebuilding one internally
+  - `main()` calls `load_file()` and unpacks `encoding_info`, `raw_text`, `delimiter`, `dataframe` from the result
+- **`csv-doctor` / `heal.py`** — refactored to use `loader.py` for all file I/O:
+  - Removed: `detect_delimiter()`, `read_mixed_encoding()` (replaced by `loader.py`)
+  - New `read_file()` wrapper calls `load_file()` and returns `(raw_rows, delimiter)` — the rest of the processing pipeline is unchanged
+  - `heal.py` can now read any format the loader supports, not just CSV
+- **`csv-doctor` / `SKILL.md`** — added full `loader.py` documentation: format table, encoding strategy, multi-sheet behaviour, `load_file()` return dict, JSON handling rules, optional dependencies
+- **`README.md`** — added "Supported file formats" section with the 9-format table; `loader.py` added to the skills table and folder structure; optional install commands for `xlrd` and `odfpy`
+
+---
+
 ## [0.3.0] — 2026-02-27
 
 ### Added

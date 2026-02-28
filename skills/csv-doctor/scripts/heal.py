@@ -27,6 +27,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# loader.py lives in the same directory as this script.
+sys.path.insert(0, str(Path(__file__).parent))
+from loader import load_file
+
 try:
     import openpyxl
     from openpyxl.styles import Alignment, Font, PatternFill
@@ -81,75 +85,38 @@ class QuarantineRow:
     reason: str
 
 
+
 # ══════════════════════════════════════════════════════════════════════════
-# STEP 1 — Read with mixed-encoding tolerance
+# STEP 1 — Read with mixed-encoding tolerance (via loader)
 # ══════════════════════════════════════════════════════════════════════════
 
-def detect_delimiter(csv_text: str) -> str:
-    sample_lines = [line for line in csv_text.splitlines() if line.strip()][:50]
-    sample = "\n".join(sample_lines[:25])
+def read_file(path: Path) -> tuple[list[list[str]], str]:
+    """
+    Load any supported file format via loader.load_file().
 
-    if sample:
-        try:
-            sniffed = csv.Sniffer().sniff(sample, delimiters=",;\t|")
-            return sniffed.delimiter
-        except csv.Error:
-            pass
+    Returns (raw_rows, delimiter).  For non-text formats (Excel, ODS, JSON)
+    raw_rows are reconstructed from the DataFrame so the rest of the
+    processing pipeline stays unchanged.
+    """
+    result    = load_file(path)
+    raw_text  = result["raw_text"]
+    delimiter = result["delimiter"]
 
-    candidates = [",", ";", "\t", "|"]
-    best_delim = ","
-    best_score = float("-inf")
-    best_width = 0
-
-    sample_text = "\n".join(sample_lines[:120])
-    for delim in candidates:
-        rows = [
-            row
-            for row in csv.reader(io.StringIO(sample_text), delimiter=delim)
-            if any(cell.strip() for cell in row)
+    if raw_text is not None and delimiter is not None:
+        # Text format: re-parse with csv.reader so multi-line quoted fields
+        # are reconstructed correctly (same behaviour as the old read_mixed_encoding).
+        rows = list(csv.reader(io.StringIO(raw_text), delimiter=delimiter))
+    else:
+        # Binary/structured format (Excel, ODS, JSON…): convert the DataFrame
+        # back to rows so the rest of the pipeline is format-agnostic.
+        df        = result["dataframe"]
+        delimiter = ","
+        rows      = [list(df.columns)] + [
+            [str(v) if v is not None else "" for v in row]
+            for row in df.itertuples(index=False, name=None)
         ]
-        if len(rows) < 2:
-            continue
 
-        widths = [len(row) for row in rows]
-        width_counts = Counter(widths)
-        mode_width, mode_count = width_counts.most_common(1)[0]
-        consistency = mode_count / len(widths)
-        header_width = len(rows[0])
-
-        score = (mode_width * 2.0) + (consistency * mode_width)
-        if header_width == mode_width:
-            score += 1.0
-        if mode_width == 1:
-            score -= 10.0
-
-        if score > best_score or (score == best_score and mode_width > best_width):
-            best_score = score
-            best_width = mode_width
-            best_delim = delim
-
-    return best_delim
-
-
-def read_mixed_encoding(path: Path) -> tuple[list[list[str]], str]:
-    """
-    Files with mixed Latin-1 and UTF-8 bytes: split on raw newlines, try
-    UTF-8 per line, fall back to Latin-1. Rejoin and re-parse with
-    csv.reader so multi-line quoted fields are reconstructed correctly.
-    """
-    with open(path, "rb") as f:
-        raw = f.read()
-    lines = []
-    for line in raw.split(b"\n"):
-        try:
-            decoded = line.decode("utf-8")
-        except UnicodeDecodeError:
-            decoded = line.decode("latin-1")
-        lines.append(decoded.replace("\x00", ""))
-    csv_text = "\n".join(lines)
-    delimiter = detect_delimiter(csv_text)
-    rows = list(csv.reader(io.StringIO(csv_text), delimiter=delimiter))
-    return rows, delimiter
+    return rows, delimiter or ","
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -950,7 +917,7 @@ def main():
         print(f"ERROR: File not found: {input_path}", file=sys.stderr)
         sys.exit(1)
 
-    all_rows, delimiter = read_mixed_encoding(input_path)
+    all_rows, delimiter = read_file(input_path)
     if len(all_rows) < 2:
         print("ERROR: File is empty or has only a header.", file=sys.stderr)
         sys.exit(1)

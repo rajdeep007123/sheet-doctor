@@ -1,8 +1,9 @@
 # csv-doctor
 
-Two scripts for messy CSV files:
+Three scripts for messy tabular files:
 
-- **`diagnose.py`** — analyses a CSV and produces a human-readable health report
+- **`loader.py`** — universal file loader used by the other two scripts
+- **`diagnose.py`** — analyses a file and produces a human-readable health report
 - **`heal.py`** — fixes every issue it can and writes a 3-sheet Excel workbook
 
 ---
@@ -18,7 +19,73 @@ Use this skill when the user says things like:
 
 ---
 
-## What this skill checks
+## loader.py
+
+`loader.py` is the shared file-reading layer. Both `diagnose.py` and `heal.py` import it instead of handling file I/O themselves.
+
+### Supported formats
+
+| Extension | Notes |
+|-----------|-------|
+| `.csv` | Delimiter auto-detected (comma, tab, pipe, semicolon) |
+| `.tsv` | Always tab — no sniffing needed |
+| `.txt` | Sniffed like `.csv` |
+| `.xlsx` | Excel (openpyxl) |
+| `.xls` | Excel legacy — requires `pip install xlrd` |
+| `.xlsm` | Excel macro-enabled — macros ignored, data loaded |
+| `.ods` | OpenDocument spreadsheet — requires `pip install odfpy` |
+| `.json` | Array of objects or nested dict (auto-flattened) |
+| `.jsonl` | JSON Lines — one object per line |
+
+### Encoding strategy (text files)
+
+Reads raw bytes, decodes **line by line**:
+1. Try UTF-8
+2. Try the chardet-detected encoding
+3. Try Latin-1
+4. CP1252 with `replace` (never crashes)
+
+Embedded null bytes are stripped before parsing. This correctly handles files with mixed Latin-1 and UTF-8 on different rows.
+
+### Multi-sheet Excel / ODS
+
+- **One sheet** — loaded silently.
+- **Multiple sheets, same columns** — prompts the user to pick one or consolidate all into a single table.
+- **Multiple sheets, different columns** — prompts the user to pick one.
+- **Non-interactive** (called as a subprocess by Claude Code) — picks the first sheet and adds a warning to the result.
+
+### What load_file() returns
+
+```python
+{
+  "dataframe":        df,          # pandas DataFrame
+  "detected_format":  "csv",       # format string
+  "detected_encoding": "latin-1",  # None for binary formats
+  "encoding_info": {               # None for binary formats
+    "detected":        "latin-1",
+    "confidence":      0.99,
+    "is_utf8":         False,
+    "suspicious_chars": ["row 4: byte b'\\xfc' at position 3"]
+  },
+  "delimiter":   ",",              # None for non-text formats
+  "raw_text":    "...",            # decoded text; None for non-text formats
+  "sheet_name":  "Sheet1",        # active sheet; None for non-spreadsheets
+  "original_rows":    847,         # row count including header
+  "original_columns": 12,
+  "warnings":    []                # list of advisory strings
+}
+```
+
+### JSON handling
+
+- **Array of objects** → converted directly to a DataFrame.
+- **Dict with a list value** → uses the first list key as the records array; warns which key was chosen.
+- **Single dict** → treated as a one-row table with a warning.
+- All nested fields are flattened with `pd.json_normalize()`.
+
+---
+
+## What diagnose.py checks
 
 ### 1. Encoding
 Detects the file's actual encoding using `chardet` and flags mismatches with UTF-8. Common culprits: Latin-1, Windows-1252, ISO-8859-1. Reports confidence level and which characters look corrupted.
@@ -50,10 +117,10 @@ Checks for column names that appear more than once. Duplicate headers silently b
 ### Diagnose only
 
 ```
-python skills/csv-doctor/scripts/diagnose.py <path-to-csv>
+python skills/csv-doctor/scripts/diagnose.py <path-to-file>
 ```
 
-Claude will run the script, read the JSON output, and turn it into a plain-English health report with:
+Accepts `.csv`, `.tsv`, `.txt`. Claude will run the script, read the JSON output, and turn it into a plain-English health report with:
 - A one-line summary verdict (HEALTHY / NEEDS ATTENTION / CRITICAL)
 - A numbered list of every issue found, with row numbers and examples
 - Suggested fixes for each issue
@@ -61,22 +128,14 @@ Claude will run the script, read the JSON output, and turn it into a plain-Engli
 ### Diagnose + heal
 
 ```
-python skills/csv-doctor/scripts/heal.py <path-to-csv> [output.xlsx]
+python skills/csv-doctor/scripts/heal.py <path-to-file> [output.xlsx]
 ```
 
-Fixes all issues automatically and writes a 3-sheet Excel workbook. Prints a summary report to stdout. See **heal.py** section below for details.
+Accepts any format supported by `loader.py`. Fixes all issues automatically and writes a 3-sheet Excel workbook. Prints a summary report to stdout.
 
 ---
 
-## Input
-
-A path to any `.csv` file. Both scripts handle mixed encodings (Latin-1, UTF-8, Windows-1252) before reading — the file does not need to be valid UTF-8.
-
-Both scripts also auto-detect common delimiters (`comma`, `semicolon`, `tab`, `pipe`).
-
----
-
-## Output format
+## Output format (diagnose.py)
 
 The script outputs a single JSON object to stdout. Claude parses this and formats the final report. Exit code `0` means the script ran successfully (even if issues were found). Exit code `1` means the script itself failed (file not found, completely unparseable, etc.).
 
@@ -87,7 +146,7 @@ The script outputs a single JSON object to stdout. Claude parses this and format
     "detected": "ISO-8859-1",
     "confidence": 0.73,
     "is_utf8": false,
-    "suspicious_chars": ["row 4, col 3: caf\u00e9"]
+    "suspicious_chars": ["row 4, col 3: café"]
   },
   "column_count": {
     "expected": 5,
@@ -138,12 +197,11 @@ The script outputs a single JSON object to stdout. Claude parses this and format
 ## heal.py
 
 ### What it fixes automatically
-`heal.py` now runs in two modes:
 
-- **Schema-specific mode** (when headers match the finance sample schema):
-  keeps the current deep normalisation logic (dates, amount, currency, status, near-duplicates, etc.)
-- **Generic mode** (any other CSV):
-  performs schema-aware structural cleaning without forcing the finance column assumptions
+`heal.py` runs in two modes:
+
+- **Schema-specific mode** (when headers match the finance sample schema): deep normalisation of dates, amounts, currency, status, near-duplicate detection, etc.
+- **Generic mode** (any other file): structural cleaning without assuming what the columns mean.
 
 | Problem | Fix applied |
 |---|---|
@@ -196,8 +254,13 @@ One row per individual change. Columns: `original_row_number`, `column_affected`
 
 ## Dependencies
 
-- `pandas` — data loading and analysis (diagnose.py)
-- `chardet` — encoding detection (diagnose.py)
-- `openpyxl` — Excel workbook output (heal.py)
+Core (always required):
+- `pandas` — data loading and analysis
+- `chardet` — encoding detection
+- `openpyxl` — Excel reading and writing
 
-Install: `pip install pandas chardet openpyxl`
+Optional (install only if you need the format):
+- `xlrd` — `.xls` legacy Excel files: `pip install xlrd`
+- `odfpy` — `.ods` OpenDocument files: `pip install odfpy`
+
+Install all at once: `pip install pandas chardet openpyxl`
