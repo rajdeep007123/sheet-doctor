@@ -15,7 +15,8 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 | Skill | Scripts | What it does |
 |---|---|---|
 | `csv-doctor` | `loader.py` | Universal file loader — reads `.csv .tsv .txt .xlsx .xls .xlsm .ods .json .jsonl` into a pandas DataFrame with encoding detection, delimiter sniffing, and explicit multi-sheet handling |
-| `csv-doctor` | `diagnose.py` | Encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers |
+| `csv-doctor` | `diagnose.py` | Structural diagnostics plus column semantics: encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers, inferred column types, per-column quality stats, suspected issues |
+| `csv-doctor` | `column_detector.py` | Standalone per-column semantic inference and quality profiling for messy tabular data, even when headers are weak or wrong |
 | `csv-doctor` | `heal.py` | Schema-aware healing (generic + finance mode) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) |
 | `excel-doctor` | `diagnose.py` | Deep Excel diagnostics: sheet inventory, merged cells, formula errors/cache misses, mixed types, duplicate/whitespace headers, structural rows, sparse columns |
 | `excel-doctor` | `heal.py` | Safe workbook fixes: unmerge ranges, standardise/dedupe headers, clean text/date values, remove empty rows, append Change Log |
@@ -166,6 +167,9 @@ python skills/csv-doctor/scripts/diagnose.py sample-data/messy_sample.csv
 # Diagnose it
 python skills/csv-doctor/scripts/diagnose.py sample-data/extreme_mess.csv
 
+# Inspect per-column semantics only
+python skills/csv-doctor/scripts/column_detector.py sample-data/extreme_mess.csv
+
 # Fix it — outputs extreme_mess_healed.xlsx with 3 sheets
 python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv
 ```
@@ -192,7 +196,8 @@ skills/
 │   ├── SKILL.md             ← Claude reads this to understand the skill
 │   └── scripts/
 │       ├── loader.py        ← universal file loader (used by both scripts below)
-│       ├── diagnose.py      ← analyses the file, outputs JSON
+│       ├── diagnose.py      ← structural + semantic analysis, outputs JSON
+│       ├── column_detector.py ← per-column type/quality inference, outputs JSON
 │       └── heal.py          ← fixes all issues, writes .xlsx workbook
 └── excel-doctor/
     ├── SKILL.md

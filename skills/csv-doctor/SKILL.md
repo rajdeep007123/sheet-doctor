@@ -1,9 +1,10 @@
 # csv-doctor
 
-Three scripts for messy tabular files:
+Four scripts for messy tabular files:
 
-- **`loader.py`** — universal file loader used by the other two scripts
+- **`loader.py`** — universal file loader used by the other three scripts
 - **`diagnose.py`** — analyses a file and produces a human-readable health report
+- **`column_detector.py`** — infers what each column probably contains and reports per-column quality stats
 - **`heal.py`** — fixes every issue it can and writes a 3-sheet Excel workbook
 
 ---
@@ -21,7 +22,7 @@ Use this skill when the user says things like:
 
 ## loader.py
 
-`loader.py` is the shared file-reading layer. Both `diagnose.py` and `heal.py` import it instead of handling file I/O themselves.
+`loader.py` is the shared file-reading layer. `diagnose.py`, `column_detector.py`, and `heal.py` import it instead of handling file I/O themselves.
 
 ### Supported formats
 
@@ -111,6 +112,44 @@ Checks for column names that appear more than once. Duplicate headers silently b
 - Completely empty columns
 - Columns that are entirely one repeated value (likely a fill-down accident)
 
+### 7. Column semantics
+`diagnose.py` now includes a `column_semantics` section powered by `column_detector.py`. For each column it tries to infer the likely semantic type even when the header is weak, generic, or wrong.
+
+Detected types:
+- `date`
+- `currency/amount`
+- `plain number`
+- `percentage`
+- `email address`
+- `phone number`
+- `URL`
+- `country name or code`
+- `currency code`
+- `name`
+- `categorical`
+- `free text`
+- `boolean`
+- `ID/code`
+- `unknown`
+
+Per-column quality stats:
+- `null_count` / `null_percentage`
+- `unique_count` / `unique_percentage`
+- `most_common_values`
+- `min_value` / `max_value` where applicable
+- `sample_values`
+- `has_mixed_types`
+- `suspected_issues`
+
+Suspected issues currently detected:
+- `Mixed date formats detected`
+- `Inconsistent capitalisation`
+- `Trailing/leading whitespace in X% of values`
+- `Possible duplicates with slight differences`
+- `Values suspiciously all the same`
+- `Outliers detected (values outside 3 standard deviations)`
+- `Possible PII detected (emails/phones/names)`
+
 ---
 
 ## How to invoke
@@ -125,6 +164,15 @@ Accepts `.csv`, `.tsv`, `.txt`. Claude will run the script, read the JSON output
 - A one-line summary verdict (HEALTHY / NEEDS ATTENTION / CRITICAL)
 - A numbered list of every issue found, with row numbers and examples
 - Suggested fixes for each issue
+- A semantic view of each column so the user can see what the file appears to contain, not just how it is broken
+
+### Column semantics only
+
+```
+python skills/csv-doctor/scripts/column_detector.py <path-to-file>
+```
+
+Accepts any format supported by `loader.py`. Outputs structured JSON focused only on column semantics and quality.
 
 ### Diagnose + heal
 
@@ -170,11 +218,50 @@ The script outputs a single JSON object to stdout. Claude parses this and format
     "count": 3,
     "rows": [6, 14, 21]
   },
-  "duplicate_headers": ["customer_id", "notes"],
+  "duplicate_headers": {
+    "duplicate_columns": ["customer_id", "notes"],
+    "repeated_header_rows": [18]
+  },
   "whitespace_headers": ["name ", " email"],
-  "empty_columns": ["col_f"],
-  "single_value_columns": {
-    "status": "active"
+  "column_quality": {
+    "empty_columns": ["col_f"],
+    "single_value_columns": {
+      "status": "active"
+    }
+  },
+  "column_semantics": {
+    "columns": {
+      "email": {
+        "detected_type": "email address",
+        "null_count": 1,
+        "null_percentage": 8.33,
+        "unique_count": 11,
+        "unique_percentage": 91.67,
+        "most_common_values": [
+          {"value": "ops@example.com", "count": 1}
+        ],
+        "min_value": null,
+        "max_value": null,
+        "sample_values": ["ops@example.com", "sales@example.com", "hr@example.com"],
+        "has_mixed_types": false,
+        "suspected_issues": [
+          "Possible PII detected (emails/phones/names)"
+        ]
+      }
+    },
+    "summary": {
+      "total_rows": 12,
+      "total_columns": 5,
+      "detected_types": {
+        "email address": 1,
+        "categorical": 2,
+        "date": 1,
+        "currency/amount": 1
+      },
+      "issue_counts": {
+        "Possible PII detected (emails/phones/names)": 1
+      }
+    }
   },
   "summary": {
     "verdict": "CRITICAL",

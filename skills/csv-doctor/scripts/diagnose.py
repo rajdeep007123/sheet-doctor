@@ -25,6 +25,7 @@ from collections import Counter
 # loader.py lives in the same directory as this script.
 sys.path.insert(0, str(Path(__file__).parent))
 from loader import load_file
+from column_detector import analyse_dataframe
 
 
 def check_column_alignment(raw_rows: list[list[str]]) -> dict:
@@ -179,6 +180,14 @@ def build_summary(report: dict) -> dict:
     if col_quality.get("single_value_columns"):
         issues += 1
 
+    column_semantics = report.get("column_semantics", {})
+    semantic_summary = column_semantics.get("summary", {})
+    if semantic_summary.get("issue_counts"):
+        issues += 1
+    unknown_columns = semantic_summary.get("detected_types", {}).get("unknown", 0)
+    if unknown_columns:
+        issues += 1
+
     if issues == 0:
         verdict = "HEALTHY"
     elif issues <= 3:
@@ -246,6 +255,7 @@ def main():
         "duplicate_headers": check_duplicate_headers(raw_rows),
         "whitespace_headers": check_whitespace_headers(raw_rows),
         "column_quality":    check_columns_quality(df),
+        "column_semantics":  analyse_dataframe(df),
     }
 
     if loaded["warnings"]:

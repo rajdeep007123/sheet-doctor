@@ -7,6 +7,10 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Added
+- **`csv-doctor` / `column_detector.py`** — standalone semantic profiler for messy tabular data:
+  - Infers likely column meaning even when headers are weak or wrong (`date`, `currency/amount`, `plain number`, `percentage`, `email`, `phone`, `URL`, `country`, `currency code`, `name`, `categorical`, `free text`, `boolean`, `ID/code`, `unknown`)
+  - Emits per-column quality stats: null/unique counts and percentages, top values, sample values, numeric/date min/max, mixed-type flag, and suspected issues
+  - Detects semantic quality problems such as mixed date formats, inconsistent capitalisation, leading/trailing whitespace, slight-variation duplicates, near-constant values, outliers, and possible PII
 - **`web/app.py`** — local Streamlit UI:
   - Upload local files or paste public file URLs, enter a plain-English prompt, preview the parsed table, and run diagnose or make-readable flows
   - Routes text/JSON formats to `csv-doctor`, modern Excel workbooks to `excel-doctor`, and falls back to loader-based readable export for `.xls` / `.ods`
@@ -15,9 +19,15 @@ All notable changes to sheet-doctor are documented here.
 - **`tests/test_loader.py`** — regression coverage for the universal loader:
   - Local behavior tests for strict `.txt` rejection and explicit multi-sheet workbook selection in non-interactive mode
   - Public corpus integration tests covering `.csv`, `.tsv`, `.xlsx`, `.xls`, `.xlsm`, `.ods`, `.json`, `.jsonl`, plus corrupt `.xls` failure handling
+- **`tests/test_column_detector.py`** — regression coverage for semantic inference:
+  - Locks down the expected type/issue profile for `sample-data/extreme_mess.csv`
+  - Covers generic headers, whitespace and near-duplicate detection, and numeric/percentage ranges
 
 ### Changed
 - **`requirements.txt`** — added `streamlit` and `requests` for the local UI layer and public-file URL imports
+- **`csv-doctor` / `diagnose.py`** — now embeds `column_semantics` in the main JSON health report:
+  - Includes per-column inferred types, quality stats, and suspected issues alongside the existing structural diagnostics
+  - Summary issue counting now includes semantic issue presence and unknown-column detection as light signals without replacing the existing structural verdict model
 - **`csv-doctor` / `loader.py`** — tightened file-loading contract:
   - `.txt` files now raise a clear error when they are plain text rather than delimited/tabular data
   - Multi-sheet `.xlsx`, `.xls`, and `.ods` files now require explicit `sheet_name` selection in non-interactive mode; `consolidate_sheets=True` is allowed only when columns match
@@ -29,7 +39,7 @@ All notable changes to sheet-doctor are documented here.
   - Added public URL rewriting for GitHub, Dropbox, Google Drive, OneDrive, and Box share links
   - Added Google Sheets `/edit` → `.xlsx` export handling and response-based file-type inference when the shared URL hides the extension
 - **`web/UI_CHANGELOG.md`** — added a dedicated UI-facing notes log for Streamlit interface changes
-- **Docs** — README, SKILL, and CONTRIBUTING updated to match the stricter loader behavior, test command, and current UI capabilities
+- **Docs** — README, SKILL, and CONTRIBUTING updated to match the stricter loader behavior, test command, current UI capabilities, and the new `column_semantics` report shape
 
 ---
 
