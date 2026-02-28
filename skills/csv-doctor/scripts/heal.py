@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import json
 import re
 import sys
 from collections import Counter
@@ -30,8 +31,13 @@ from pathlib import Path
 
 import pandas as pd
 
-# loader.py lives in the same directory as this script.
-sys.path.insert(0, str(Path(__file__).parent))
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[2]
+sys.path.insert(0, str(ROOT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from sheet_doctor import __version__ as TOOL_VERSION
+from sheet_doctor.contracts import build_contract, build_run_summary
 from column_detector import analyse_dataframe
 from loader import load_file
 
@@ -1657,6 +1663,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Heal messy tabular files into a 3-sheet Excel workbook.")
     parser.add_argument("input", nargs="?", default=str(INPUT), help="Input file path")
     parser.add_argument("output", nargs="?", default=str(OUTPUT), help="Output .xlsx path")
+    parser.add_argument(
+        "--json-summary",
+        dest="json_summary",
+        help="Optional path to write a structured JSON healing summary for UI/backend use",
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--sheet", dest="sheet_name", help="Workbook sheet name to heal")
     group.add_argument(
@@ -1666,6 +1677,51 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Consolidate all sheets before healing (only when columns are compatible)",
     )
     return parser.parse_args(argv)
+
+
+def build_structured_summary(result: dict, *, input_path: Path, output_path: Path) -> dict:
+    contract = build_contract("csv_doctor.heal_summary")
+    clean_rows = len(result["clean_data"])
+    quarantine_rows = len(result["quarantine"])
+    needs_review_rows = sum(1 for row in result["clean_data"] if row.needs_review)
+    modified_rows = sum(1 for row in result["clean_data"] if row.was_modified)
+    return {
+        "contract": contract,
+        "schema_version": contract["version"],
+        "tool_version": TOOL_VERSION,
+        "mode": result["mode"],
+        "delimiter": result["delimiter"],
+        "input_file": str(input_path),
+        "output_file": str(output_path),
+        "rows": {
+            "total_including_header": result["total_in"],
+            "clean_rows": clean_rows,
+            "quarantine_rows": quarantine_rows,
+            "needs_review_rows": needs_review_rows,
+            "modified_rows": modified_rows,
+        },
+        "changes": {
+            "logged": len(result["changelog"]),
+            "action_counts": dict(result["action_counts"]),
+            "quarantine_reason_counts": result["quarantine_reason_counts"],
+        },
+        "assumptions": list(result["assumptions"]),
+        "run_summary": build_run_summary(
+            tool="csv-doctor",
+            script="heal.py",
+            input_path=input_path,
+            output_path=output_path,
+            metrics={
+                "mode": result["mode"],
+                "total_including_header": result["total_in"],
+                "clean_rows": clean_rows,
+                "quarantine_rows": quarantine_rows,
+                "needs_review_rows": needs_review_rows,
+                "modified_rows": modified_rows,
+                "changes_logged": len(result["changelog"]),
+            },
+        ),
+    }
 
 
 def execute_healing(
@@ -1748,6 +1804,17 @@ def main():
         output_path,
         headers=result["headers"],
     )
+    if args.json_summary:
+        summary_path = Path(args.json_summary)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(
+            json.dumps(
+                build_structured_summary(result, input_path=input_path, output_path=output_path),
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
     W = 60
     print()

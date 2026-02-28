@@ -33,6 +33,9 @@ More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 - ✅ `heal.py` — fixer with Clean Data / Quarantine / Change Log output
 - ✅ `skills/csv-doctor/SKILL.md` — Claude invocation guide for the full CSV workflow
 - ✅ `skills/csv-doctor/README.md` — standalone developer documentation for the CSV skill
+- ✅ `.github/workflows/ci.yml` — reproducible CI checks across supported Python versions
+- ✅ `schemas/` — versioned JSON contract docs for deployable machine outputs
+- ✅ `pyproject.toml` — package/release metadata with optional extras for `.xls` and `.ods`
 
 ## Architecture
 
@@ -56,6 +59,8 @@ In practice:
 - `heal.py` produces the usable workbook output
 - `SKILL.md` tells Claude when to invoke the workflow
 - `skills/csv-doctor/README.md` documents the subsystem for developers
+- `sheet_doctor/contracts.py` defines stable machine contracts for the UI/backend
+- `schemas/` documents those contracts for CI and future API consumers
 
 Report scores:
 - `raw_health_score` measures how broken the original file is before repair
@@ -67,6 +72,12 @@ Healing modes:
 - `schema-specific` when the canonical 8-column finance/export shape is detected
 - `semantic` when non-exact headers still strongly map to roles like name/date/amount/currency/status
 - `generic` when only structural cleanup is safe
+
+Deployable machine outputs:
+- JSON-producing scripts now emit `contract`, `schema_version`, `tool_version`, and `run_summary`
+- `csv-doctor/heal.py` and `excel-doctor/heal.py` now support `--json-summary <path>` for backend/UI ingestion
+- Stable schema docs live in [`schemas/`](./schemas)
+- CI validates compile health, unit tests, and the sample CSV pipeline on every push/PR
 
 ---
 
@@ -127,6 +138,13 @@ pip install -r requirements.txt
 
 > On Windows: `.venv\Scripts\activate`
 
+Or install from package metadata:
+
+```bash
+pip install .
+pip install .[all]
+```
+
 Optional extras for additional formats:
 
 ```bash
@@ -141,6 +159,8 @@ python -m unittest discover -s tests -v
 ```
 
 The test suite covers strict `.txt` rejection, multi-sheet workbook selection rules, and integration checks against public sample corpora when those fixtures are available locally.
+
+CI runs the same checks from [`.github/workflows/ci.yml`](/Users/razzo/Documents/For%20Codex/sheet-doctor/.github/workflows/ci.yml), plus compile checks and a sample end-to-end CSV smoke test.
 
 **4. Register the skills with Claude Code**
 
@@ -234,12 +254,22 @@ python skills/csv-doctor/scripts/reporter.py sample-data/extreme_mess.csv
 # Fix it — outputs extreme_mess_healed.xlsx with 3 sheets
 python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv
 
+# Fix it and emit a structured JSON summary for the UI/backend
+python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv /tmp/extreme_mess_healed.xlsx --json-summary /tmp/extreme_mess_heal_summary.json
+
 # Heal one workbook sheet explicitly
 python skills/csv-doctor/scripts/heal.py /path/to/workbook.xlsx /tmp/healed.xlsx --sheet "Visible"
 
 # Consolidate compatible workbook sheets before healing
 python skills/csv-doctor/scripts/heal.py /path/to/workbook.xlsx /tmp/healed.xlsx --all-sheets
 ```
+
+Machine-readable contracts:
+- CSV diagnose: [`schemas/csv-diagnose.schema.json`](/Users/razzo/Documents/For%20Codex/sheet-doctor/schemas/csv-diagnose.schema.json)
+- CSV report: [`schemas/csv-report.schema.json`](/Users/razzo/Documents/For%20Codex/sheet-doctor/schemas/csv-report.schema.json)
+- CSV heal summary: [`schemas/csv-heal-summary.schema.json`](/Users/razzo/Documents/For%20Codex/sheet-doctor/schemas/csv-heal-summary.schema.json)
+- Excel diagnose: [`schemas/excel-diagnose.schema.json`](/Users/razzo/Documents/For%20Codex/sheet-doctor/schemas/excel-diagnose.schema.json)
+- Excel heal summary: [`schemas/excel-heal-summary.schema.json`](/Users/razzo/Documents/For%20Codex/sheet-doctor/schemas/excel-heal-summary.schema.json)
 
 Current `extreme_mess.csv` score progression:
 - Raw Health Score: `32/100`

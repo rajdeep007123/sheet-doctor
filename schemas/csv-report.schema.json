@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sheet-doctor.dev/schemas/csv-report.schema.json",
+  "title": "csv-doctor reporter output",
+  "type": "object",
+  "required": ["contract", "schema_version", "tool_version", "run_summary", "file_overview", "raw_health_score", "recoverability_score", "post_heal_score", "healing_projection", "text_report"],
+  "properties": {
+    "contract": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "csv_doctor.report"},
+        "version": {"type": "string"}
+      }
+    },
+    "schema_version": {"type": "string"},
+    "tool_version": {"type": "string"},
+    "run_summary": {"type": "object"},
+    "file_overview": {"type": "object"},
+    "raw_health_score": {"type": "object"},
+    "recoverability_score": {"type": "object"},
+    "post_heal_score": {"type": "object"},
+    "healing_projection": {"type": "object"},
+    "text_report": {"type": "string"}
+  }
+}

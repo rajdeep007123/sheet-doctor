@@ -22,8 +22,13 @@ import re
 from pathlib import Path
 from collections import Counter
 
-# loader.py lives in the same directory as this script.
-sys.path.insert(0, str(Path(__file__).parent))
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[2]
+sys.path.insert(0, str(ROOT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from sheet_doctor import __version__ as TOOL_VERSION
+from sheet_doctor.contracts import build_contract, build_run_summary
 from loader import load_file
 from column_detector import analyse_dataframe
 from issue_taxonomy import build_issue, infer_healing_mode
@@ -393,6 +398,9 @@ def build_report(file_path: Path) -> dict:
     raw_rows = list(csv.reader(io.StringIO(raw_text), delimiter=delimiter))
 
     report = {
+        "contract": build_contract("csv_doctor.diagnose"),
+        "schema_version": build_contract("csv_doctor.diagnose")["version"],
+        "tool_version": TOOL_VERSION,
         "file": file_path.name,
         "detected_format": loaded["detected_format"],
         "detected_encoding": loaded["detected_encoding"],
@@ -412,9 +420,26 @@ def build_report(file_path: Path) -> dict:
 
     if loaded["warnings"]:
         report["loader_warnings"] = loaded["warnings"]
+    if loaded.get("degraded_mode"):
+        report["degraded_mode"] = loaded["degraded_mode"]
 
     report["issues"] = build_normalized_issues(report, healing_mode=healing_mode)
     report["summary"] = build_summary(report)
+    report["run_summary"] = build_run_summary(
+        tool="csv-doctor",
+        script="diagnose.py",
+        input_path=file_path,
+        warnings=loaded.get("warnings", []),
+        metrics={
+            "detected_format": loaded["detected_format"],
+            "healing_mode_candidate": healing_mode,
+            "raw_rows_total": report["row_accounting"].get("raw_rows_total", len(raw_rows)),
+            "parsed_rows_total": report["row_accounting"].get("parsed_rows_total", len(df)),
+            "issues_found": report["summary"]["issue_count"],
+            "verdict": report["summary"]["verdict"],
+            "degraded_mode_active": bool(loaded.get("degraded_mode", {}).get("active", False)),
+        },
+    )
     return report
 
 

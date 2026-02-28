@@ -21,7 +21,13 @@ from typing import Any
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent))
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[2]
+sys.path.insert(0, str(ROOT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from sheet_doctor import __version__ as TOOL_VERSION
+from sheet_doctor.contracts import build_contract, build_run_summary
 from column_detector import analyse_dataframe
 from diagnose import (
     build_normalized_issues,
@@ -422,7 +428,11 @@ def build_report(file_path: Path) -> dict[str, Any]:
         pii_warning = "⚠️ This file appears to contain PII. Handle according to your data protection policy."
 
     row_accounting = diagnose_report.get("row_accounting") or {}
+    contract = build_contract("csv_doctor.report")
     report_json = {
+        "contract": contract,
+        "schema_version": contract["version"],
+        "tool_version": TOOL_VERSION,
         "file_overview": {
             "file": file_path.name,
             "rows": row_accounting.get("raw_data_rows_total", column_report.get("summary", {}).get("total_rows", 0)),
@@ -457,6 +467,21 @@ def build_report(file_path: Path) -> dict[str, Any]:
             "column_detector": column_report,
         },
     }
+    report_json["run_summary"] = build_run_summary(
+        tool="csv-doctor",
+        script="reporter.py",
+        input_path=file_path,
+        metrics={
+            "detected_format": diagnose_report.get("detected_format", "unknown"),
+            "healing_mode": heal_result["mode"],
+            "raw_health_score": raw_score["score"],
+            "recoverability_score": recoverability_score["score"],
+            "post_heal_score": post_heal_score["score"],
+            "clean_rows": len(heal_result["clean_data"]),
+            "quarantine_rows": len(heal_result["quarantine"]),
+            "issues_found": len(issues),
+        },
+    )
     report_json["text_report"] = render_text_report(report_json)
     return report_json
 

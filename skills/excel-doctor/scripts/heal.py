@@ -12,12 +12,21 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[2]
+sys.path.insert(0, str(ROOT_DIR))
+
+from sheet_doctor import __version__ as TOOL_VERSION
+from sheet_doctor.contracts import build_contract, build_run_summary
 
 try:
     from openpyxl import load_workbook
@@ -364,35 +373,23 @@ def write_change_log_sheet(workbook, changes: list[Change]) -> None:
         )
 
 
-def main():
-    if len(sys.argv) < 2:
-        print(
-            "ERROR: No file path provided. Usage: "
-            "python skills/excel-doctor/scripts/heal.py <input.xlsx> [output.xlsx]",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    input_path = Path(sys.argv[1])
-    if not input_path.exists():
-        print(f"ERROR: File not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
-
-    if input_path.suffix.lower() not in (".xlsx", ".xlsm"):
-        print(f"ERROR: Expected an .xlsx/.xlsm file, got: {input_path.suffix}", file=sys.stderr)
-        sys.exit(1)
-
-    output_path = (
-        Path(sys.argv[2])
-        if len(sys.argv) > 2
-        else input_path.with_name(f"{input_path.stem}_healed.xlsx")
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Heal .xlsx/.xlsm workbooks and append a Change Log sheet.")
+    parser.add_argument("input", help="Input .xlsx/.xlsm file")
+    parser.add_argument("output", nargs="?", help="Output .xlsx path")
+    parser.add_argument(
+        "--json-summary",
+        dest="json_summary",
+        help="Optional path to write a structured JSON healing summary for UI/backend use",
     )
+    return parser.parse_args(argv)
 
+
+def execute_healing(input_path: Path, output_path: Path) -> tuple[list[Change], Counter]:
     try:
         workbook = load_workbook(input_path)
     except Exception as exc:
-        print(f"ERROR: Could not read workbook: {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Could not read workbook: {exc}") from exc
 
     changes: list[Change] = []
     stats = Counter()
@@ -405,6 +402,88 @@ def main():
 
     write_change_log_sheet(workbook, changes)
     workbook.save(output_path)
+    return changes, stats
+
+
+def build_structured_summary(
+    *,
+    input_path: Path,
+    output_path: Path,
+    changes: list[Change],
+    stats: Counter,
+) -> dict:
+    contract = build_contract("excel_doctor.heal_summary")
+    return {
+        "contract": contract,
+        "schema_version": contract["version"],
+        "tool_version": TOOL_VERSION,
+        "input_file": str(input_path),
+        "output_file": str(output_path),
+        "stats": dict(stats),
+        "changes_logged": len(changes),
+        "assumptions": [
+            "Ambiguous DD/MM vs MM/DD dates prefer day-first when both parse",
+            "MM-DD-YY dates assume 20xx for YY<50, otherwise 19xx",
+            "Formula cells are preserved unchanged",
+        ],
+        "run_summary": build_run_summary(
+            tool="excel-doctor",
+            script="heal.py",
+            input_path=input_path,
+            output_path=output_path,
+            metrics={
+                "sheets_processed": stats["sheets_processed"],
+                "changes_logged": len(changes),
+                "headers_standardised": stats["headers_standardised"],
+                "headers_deduplicated": stats["headers_deduplicated"],
+                "merged_ranges_unmerged": stats["merged_ranges_unmerged"],
+                "dates_normalised": stats["dates_normalised"],
+                "empty_rows_removed": stats["empty_rows_removed"],
+            },
+        ),
+    }
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+
+    input_path = Path(args.input)
+    if not input_path.exists():
+        print(f"ERROR: File not found: {input_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if input_path.suffix.lower() not in (".xlsx", ".xlsm"):
+        print(f"ERROR: Expected an .xlsx/.xlsm file, got: {input_path.suffix}", file=sys.stderr)
+        sys.exit(1)
+
+    output_path = (
+        Path(args.output)
+        if args.output
+        else input_path.with_name(f"{input_path.stem}_healed.xlsx")
+    )
+
+    try:
+        changes, stats = execute_healing(input_path, output_path)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json_summary:
+        summary_path = Path(args.json_summary)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(
+            json.dumps(
+                build_structured_summary(
+                    input_path=input_path,
+                    output_path=output_path,
+                    changes=changes,
+                    stats=stats,
+                ),
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
     print()
     print("═" * 62)

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sheet-doctor"
+version = "0.5.0.dev0"
+description = "Free local spreadsheet diagnosis and cleanup tools for messy CSV and Excel files"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "razzo007" }
+]
+dependencies = [
+  "pandas",
+  "chardet",
+  "openpyxl",
+  "streamlit",
+  "requests",
+]
+
+[project.optional-dependencies]
+excel-legacy = ["xlrd"]
+ods = ["odfpy"]
+all = ["xlrd", "odfpy"]
+
+[tool.setuptools]
+packages = ["sheet_doctor"]

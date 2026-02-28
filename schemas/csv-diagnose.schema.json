@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sheet-doctor.dev/schemas/csv-diagnose.schema.json",
+  "title": "csv-doctor diagnose output",
+  "type": "object",
+  "required": ["contract", "schema_version", "tool_version", "run_summary", "summary", "issues"],
+  "properties": {
+    "contract": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "csv_doctor.diagnose"},
+        "version": {"type": "string"}
+      }
+    },
+    "schema_version": {"type": "string"},
+    "tool_version": {"type": "string"},
+    "run_summary": {"type": "object"},
+    "summary": {
+      "type": "object",
+      "required": ["verdict", "issue_count"]
+    },
+    "issues": {
+      "type": "array"
+    }
+  }
+}

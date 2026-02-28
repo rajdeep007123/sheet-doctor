@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install xlrd odfpy
+
+      - name: Compile Python files
+        run: |
+          python -m py_compile $(find sheet_doctor skills tests -name '*.py' -print)
+
+      - name: Run unit tests
+        run: |
+          python -m unittest discover -s tests -v
+
+      - name: Smoke run sample pipeline
+        run: |
+          python sample-data/generate_extreme_mess.py
+          python skills/csv-doctor/scripts/diagnose.py sample-data/extreme_mess.csv > /tmp/extreme_diagnose.json
+          python skills/csv-doctor/scripts/reporter.py sample-data/extreme_mess.csv /tmp/extreme_report.txt /tmp/extreme_report.json
+          python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv /tmp/extreme_healed.xlsx --json-summary /tmp/extreme_heal_summary.json

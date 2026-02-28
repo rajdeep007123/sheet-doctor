@@ -18,6 +18,13 @@ from collections import Counter
 from datetime import date, datetime, time
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[2]
+sys.path.insert(0, str(ROOT_DIR))
+
+from sheet_doctor import __version__ as TOOL_VERSION
+from sheet_doctor.contracts import build_contract, build_run_summary
+
 try:
     from openpyxl import load_workbook
 except ImportError:
@@ -349,32 +356,12 @@ def build_summary(report: dict) -> dict:
     }
 
 
-def main():
-    if len(sys.argv) < 2:
-        print(
-            json.dumps({"error": "No file path provided. Usage: diagnose.py <file.xlsx>"}),
-            file=sys.stdout,
-        )
-        sys.exit(1)
-
-    file_path = Path(sys.argv[1])
-    if not file_path.exists():
-        print(json.dumps({"error": f"File not found: {file_path}"}), file=sys.stdout)
-        sys.exit(1)
-
-    if file_path.suffix.lower() not in (".xlsx", ".xlsm"):
-        print(
-            json.dumps({"error": f"Expected an .xlsx/.xlsm file, got: {file_path.suffix}"}),
-            file=sys.stdout,
-        )
-        sys.exit(1)
-
+def build_report(file_path: Path) -> dict:
     try:
         workbook_values = load_workbook(file_path, data_only=True)
         workbook_formulas = load_workbook(file_path, data_only=False)
     except Exception as exc:
-        print(json.dumps({"error": f"Could not read workbook: {exc}"}), file=sys.stdout)
-        sys.exit(1)
+        raise ValueError(f"Could not read workbook: {exc}") from exc
 
     sheets_info = {
         "all": [sheet.title for sheet in workbook_values.worksheets],
@@ -456,7 +443,11 @@ def main():
         if high_nulls:
             high_null_columns[sheet_name] = high_nulls
 
+    contract = build_contract("excel_doctor.diagnose")
     report = {
+        "contract": contract,
+        "schema_version": contract["version"],
+        "tool_version": TOOL_VERSION,
         "file": file_path.name,
         "sheets": sheets_info,
         "merged_cells": merged_cells,
@@ -474,6 +465,45 @@ def main():
     }
     report["summary"] = build_summary(report)
     report["issue_counts"] = count_issue_events(report)
+    report["run_summary"] = build_run_summary(
+        tool="excel-doctor",
+        script="diagnose.py",
+        input_path=file_path,
+        metrics={
+            "sheets_total": sheets_info["count"],
+            "issues_found": report["summary"]["issue_count"],
+            "issue_categories_triggered": report["summary"]["issue_categories_triggered"],
+            "verdict": report["summary"]["verdict"],
+        },
+    )
+    return report
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(
+            json.dumps({"error": "No file path provided. Usage: diagnose.py <file.xlsx>"}),
+            file=sys.stdout,
+        )
+        sys.exit(1)
+
+    file_path = Path(sys.argv[1])
+    if not file_path.exists():
+        print(json.dumps({"error": f"File not found: {file_path}"}), file=sys.stdout)
+        sys.exit(1)
+
+    if file_path.suffix.lower() not in (".xlsx", ".xlsm"):
+        print(
+            json.dumps({"error": f"Expected an .xlsx/.xlsm file, got: {file_path.suffix}"}),
+            file=sys.stdout,
+        )
+        sys.exit(1)
+
+    try:
+        report = build_report(file_path)
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stdout)
+        sys.exit(1)
 
     print(json.dumps(report, indent=2, ensure_ascii=False))
     sys.exit(0)

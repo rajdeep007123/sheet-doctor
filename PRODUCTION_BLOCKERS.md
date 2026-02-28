@@ -91,12 +91,16 @@ first because the later items depend on them or matter less to user trust.
     - `.ods` now fails with a clear `ImportError` for missing `odfpy`
     - loader tests cover these contracts directly
 
-- [ ] CI / schema stability
+- [x] CI / schema stability
   - Current behavior: local tests are good, but output stability is not enforced in CI.
   - Required outcome:
     - CI matrix
     - JSON schema/version tests
     - release-quality repeatability
+  - Status:
+    - GitHub Actions now runs compile checks, unit tests, and a sample CSV smoke pipeline
+    - versioned schema files live under `schemas/`
+    - contract tests validate stable machine-readable metadata
 
 ## Current Real-World Evaluation Snapshot
 

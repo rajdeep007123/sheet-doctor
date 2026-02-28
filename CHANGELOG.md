@@ -7,6 +7,27 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Added
+- **`.github/workflows/ci.yml`** — deployable CI pipeline:
+  - Runs on push, PR, and manual dispatch
+  - Tests Python `3.9`, `3.11`, and `3.12`
+  - Installs optional `.xls` / `.ods` dependencies in CI so the full loader matrix is exercised
+  - Runs compile checks, the unit test suite, and a sample end-to-end CSV smoke pipeline
+- **`pyproject.toml`** — release/package metadata:
+  - Declares core runtime dependencies and optional extras for legacy Excel (`xlrd`) and ODS (`odfpy`)
+  - Establishes a single project version for release hygiene
+- **`sheet_doctor/__init__.py`** and **`sheet_doctor/contracts.py`** — shared deployable contract layer:
+  - Centralises `tool_version`
+  - Defines versioned contracts for machine-readable outputs
+  - Provides a shared `run_summary` builder for UI/backend-facing scripts
+- **`schemas/`** — versioned JSON contract docs:
+  - `csv-diagnose.schema.json`
+  - `csv-report.schema.json`
+  - `csv-heal-summary.schema.json`
+  - `excel-diagnose.schema.json`
+  - `excel-heal-summary.schema.json`
+- **`tests/test_contracts.py`** — contract/regression coverage:
+  - Verifies schema metadata and run summaries for CSV and Excel outputs
+  - Validates schema files are well-formed JSON
 - **`skills/csv-doctor/README.md`** — standalone developer documentation for the CSV skill:
   - Explains what `csv-doctor` does, how each script works, accepted formats, output structure, manual commands, and the `extreme_mess.csv` example flow
 - **`csv-doctor` / `reporter.py`** — human-readable health report generator:
@@ -37,6 +58,16 @@ All notable changes to sheet-doctor are documented here.
   - Semantic mode normalizes alternate headers and now covers workbook sheet selection / consolidation entry points
 
 ### Changed
+- **`csv-doctor` / `diagnose.py`** — now emits deployable contract metadata:
+  - Added `contract`, `schema_version`, `tool_version`, and `run_summary`
+  - Exposes `degraded_mode` from the loader in the JSON report when active
+- **`csv-doctor` / `reporter.py`** — now emits deployable contract metadata:
+  - Added `contract`, `schema_version`, `tool_version`, and `run_summary`
+- **`csv-doctor` / `heal.py`** — now supports structured summary output:
+  - Added `--json-summary <path>` for machine-readable post-heal summaries
+  - Exposes stable counts for clean rows, quarantine rows, review flags, and logged changes
+- **`excel-doctor` / `diagnose.py`** — now builds a reusable report object with stable contract metadata and `run_summary`
+- **`excel-doctor` / `heal.py`** — now supports `--json-summary <path>` and reusable structured post-heal summaries
 - **`csv-doctor` / `loader.py`** — Phase 4 operational hardening:
   - Added large-file guardrails with explicit warning, degraded-mode, and hard-stop thresholds for risky in-memory loads
   - Result payloads now expose `degraded_mode` so callers and the UI can react explicitly to risky inputs

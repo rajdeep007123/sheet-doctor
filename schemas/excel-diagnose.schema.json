@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sheet-doctor.dev/schemas/excel-diagnose.schema.json",
+  "title": "excel-doctor diagnose output",
+  "type": "object",
+  "required": ["contract", "schema_version", "tool_version", "run_summary", "summary", "issue_counts"],
+  "properties": {
+    "contract": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "excel_doctor.diagnose"},
+        "version": {"type": "string"}
+      }
+    },
+    "schema_version": {"type": "string"},
+    "tool_version": {"type": "string"},
+    "run_summary": {"type": "object"},
+    "summary": {"type": "object"},
+    "issue_counts": {"type": "object"}
+  }
+}

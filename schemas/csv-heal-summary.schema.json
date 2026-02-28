@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sheet-doctor.dev/schemas/csv-heal-summary.schema.json",
+  "title": "csv-doctor heal summary output",
+  "type": "object",
+  "required": ["contract", "schema_version", "tool_version", "run_summary", "mode", "rows"],
+  "properties": {
+    "contract": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "csv_doctor.heal_summary"},
+        "version": {"type": "string"}
+      }
+    },
+    "schema_version": {"type": "string"},
+    "tool_version": {"type": "string"},
+    "run_summary": {"type": "object"},
+    "mode": {"type": "string"},
+    "rows": {"type": "object"}
+  }
+}
