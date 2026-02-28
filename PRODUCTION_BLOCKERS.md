@@ -61,12 +61,15 @@ first because the later items depend on them or matter less to user trust.
   - Status:
     - reporter now emits all three scores and uses actual healing projection data
 
-- [ ] Reporter golden tests
+- [x] Reporter golden tests
   - Current behavior: reporter has unit coverage, but not locked text/json snapshots.
   - Required outcome:
     - golden test for `.txt`
     - golden test for `.json`
     - stable output contract for the UI
+  - Status:
+    - `tests/golden/extreme_mess_report.txt` and `tests/golden/extreme_mess_report.json` now lock the reporter output
+    - `tests/test_reporter.py` validates both snapshots after timestamp normalization
 
 ## P2
 

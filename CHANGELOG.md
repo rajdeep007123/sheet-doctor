@@ -28,6 +28,7 @@ All notable changes to sheet-doctor are documented here.
 - **`tests/test_contracts.py`** — contract/regression coverage:
   - Verifies schema metadata and run summaries for CSV and Excel outputs
   - Validates schema files are well-formed JSON
+- **`tests/golden/extreme_mess_report.txt`** and **`tests/golden/extreme_mess_report.json`** — stable reporter golden snapshots for `extreme_mess.csv`
 - **`skills/csv-doctor/README.md`** — standalone developer documentation for the CSV skill:
   - Explains what `csv-doctor` does, how each script works, accepted formats, output structure, manual commands, and the `extreme_mess.csv` example flow
 - **`csv-doctor` / `reporter.py`** — human-readable health report generator:
@@ -68,6 +69,7 @@ All notable changes to sheet-doctor are documented here.
   - Exposes stable counts for clean rows, quarantine rows, review flags, and logged changes
 - **`excel-doctor` / `diagnose.py`** — now builds a reusable report object with stable contract metadata and `run_summary`
 - **`excel-doctor` / `heal.py`** — now supports `--json-summary <path>` and reusable structured post-heal summaries
+- **`tests/test_reporter.py`** — now includes golden snapshot regression coverage for the plain-text and JSON reporter outputs
 - **`csv-doctor` / `loader.py`** — Phase 4 operational hardening:
   - Added large-file guardrails with explicit warning, degraded-mode, and hard-stop thresholds for risky in-memory loads
   - Result payloads now expose `degraded_mode` so callers and the UI can react explicitly to risky inputs

@@ -1,0 +1,1630 @@
+{
+  "assumptions": [
+    "Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values",
+    "Ambiguous DD/MM vs MM/DD dates: day-first assumed; fallback to month-first if day-first is impossible",
+    "MM-DD-YY two-digit years: treated as 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50",
+    "Unix timestamps: interpreted as UTC; converted to YYYY-MM-DD",
+    "Excel serial dates: Windows epoch (1899-12-30); range 40,000–55,000 treated as dates",
+    "European decimal 1.200,00: detected when period precedes comma; converted to 1200.00",
+    "Combined values like '$1,200 USD' are split so Amount keeps the numeric value and Currency keeps the ISO code",
+    "Blank / N/A / TBD amounts: cleared to empty string and flagged needs_review=TRUE",
+    "\"INR ₹\" and similar symbol+code combos: symbol stripped, ISO code kept",
+    "\"Eng\" department abbreviation: kept as-is (expanding abbreviations requires a lookup table)",
+    "Short blank runs in categorical columns are forward-filled when they look like merged-cell export gaps; filled rows are flagged for review",
+    "Rows with long single-cell prose are treated as notes/metadata rather than transactional data",
+    "Rows labelled TOTAL/Subtotal/SUM are quarantined when the amount matches the running total closely enough to look calculated",
+    "Near-duplicate rows (same Name/Amount/Currency/Category, date within 2 days): both kept, both flagged",
+    "Exact duplicates: first occurrence kept; subsequent occurrences removed and logged",
+    "Short rows (< 8 columns): padded with empty strings; flagged needs_review=TRUE",
+    "Metadata export row (sparse, 1/8 fields filled): quarantined as 'Less than 50% columns filled'"
+  ],
+  "column_breakdown": [
+    {
+      "column": "Employee Name",
+      "detected_type": "name",
+      "null_percentage": 4.35,
+      "top_issues": [
+        "Inconsistent capitalisation",
+        "Possible PII detected (emails/phones/names)"
+      ]
+    },
+    {
+      "column": "Department",
+      "detected_type": "categorical",
+      "null_percentage": 8.7,
+      "top_issues": [
+        "Inconsistent capitalisation",
+        "Possible duplicates with slight differences"
+      ]
+    },
+    {
+      "column": "Date",
+      "detected_type": "date",
+      "null_percentage": 8.7,
+      "top_issues": [
+        "Mixed date formats detected",
+        "Inconsistent capitalisation"
+      ]
+    },
+    {
+      "column": "Amount",
+      "detected_type": "currency/amount",
+      "null_percentage": 13.04,
+      "top_issues": [
+        "Possible duplicates with slight differences",
+        "Outliers detected (values outside 3 standard deviations)"
+      ]
+    },
+    {
+      "column": "Currency",
+      "detected_type": "currency code",
+      "null_percentage": 10.87,
+      "top_issues": [
+        "Inconsistent capitalisation",
+        "Possible duplicates with slight differences"
+      ]
+    },
+    {
+      "column": "Category",
+      "detected_type": "categorical",
+      "null_percentage": 13.04,
+      "top_issues": [
+        "No major issues detected"
+      ]
+    },
+    {
+      "column": "Status",
+      "detected_type": "categorical",
+      "null_percentage": 15.22,
+      "top_issues": [
+        "Inconsistent capitalisation",
+        "Possible duplicates with slight differences"
+      ]
+    },
+    {
+      "column": "Notes",
+      "detected_type": "free text",
+      "null_percentage": 15.22,
+      "top_issues": [
+        "No major issues detected"
+      ]
+    }
+  ],
+  "contract": {
+    "name": "csv_doctor.report",
+    "version": "1.0.0"
+  },
+  "file_overview": {
+    "columns": 8,
+    "dropped_rows": 5,
+    "encoding": "MacRoman",
+    "file": "extreme_mess.csv",
+    "format": "csv",
+    "malformed_rows": 8,
+    "parsed_rows": 46,
+    "rows": 51,
+    "scanned_at": "<TIMESTAMP>"
+  },
+  "healing_projection": {
+    "action_counts": {
+      "Fixed": 99,
+      "Flagged": 2,
+      "Quarantined": 5,
+      "Removed": 6
+    },
+    "clean_rows": 40,
+    "mode": "schema-specific",
+    "modified_rows": 39,
+    "needs_review_rows": 8,
+    "quarantine_reasons": {
+      "Appears to be a notes row": 1,
+      "Calculated subtotal row": 1,
+      "Completely empty row": 1,
+      "Row is all whitespace": 1,
+      "Structural row (TOTAL/subtotal/header repeat)": 1
+    },
+    "quarantine_rows": 5
+  },
+  "health_score": {
+    "deductions": {
+      "data_quality": 10,
+      "date_chaos": 5,
+      "duplicates": 10,
+      "encoding": 10,
+      "missing_data": 3,
+      "structural": 30
+    },
+    "label": "Poor — major surgery required",
+    "metrics": {
+      "date_columns_affected": 1,
+      "encoding_issue_count": 2,
+      "overall_null_percentage": 11.14,
+      "semantic_issue_types": 5,
+      "structural_issue_count": 3
+    },
+    "score": 32
+  },
+  "issues": {
+    "critical": [
+      {
+        "auto_fixable": true,
+        "columns": [
+          "row structure"
+        ],
+        "details": {
+          "rows": [
+            {
+              "count": 9,
+              "row": 10
+            },
+            {
+              "count": 9,
+              "row": 12
+            },
+            {
+              "count": 9,
+              "row": 22
+            },
+            {
+              "count": 9,
+              "row": 45
+            },
+            {
+              "count": 9,
+              "row": 48
+            },
+            {
+              "count": 6,
+              "row": 50
+            },
+            {
+              "count": 5,
+              "row": 51
+            },
+            {
+              "count": 4,
+              "row": 52
+            }
+          ]
+        },
+        "id": "structural_misaligned_rows",
+        "plain_english": "Some rows have too many or too few columns, which will break imports and shift values into the wrong fields.",
+        "rows_affected": 8,
+        "severity": "critical"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "row structure"
+        ],
+        "details": {
+          "rows": [
+            17
+          ]
+        },
+        "id": "structural_repeated_header_rows",
+        "plain_english": "The header row appears again inside the data, which will be treated as a broken data row during import.",
+        "rows_affected": 1,
+        "severity": "critical"
+      }
+    ],
+    "info": [
+      {
+        "auto_fixable": false,
+        "columns": [
+          "Employee Name"
+        ],
+        "details": {},
+        "id": "semantic_pii",
+        "plain_english": "The Employee Name column appears to contain personally identifiable information that may need extra care before sharing.",
+        "rows_affected": 49,
+        "severity": "info"
+      }
+    ],
+    "warning": [
+      {
+        "auto_fixable": true,
+        "columns": [
+          "file-wide"
+        ],
+        "details": {},
+        "id": "encoding_non_utf8",
+        "plain_english": "The file uses MacRoman instead of UTF-8, so some systems may misread special characters.",
+        "rows_affected": 51,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "Employee Name"
+        ],
+        "details": {},
+        "id": "semantic_inconsistent_capitalisation",
+        "plain_english": "The Employee Name column uses inconsistent capitalisation, which can split what should be one category into several versions.",
+        "rows_affected": 49,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "Date"
+        ],
+        "details": {
+          "formats_found": [
+            "DD/MM/YYYY or MM/DD/YYYY",
+            "Month D, YYYY",
+            "YYYY-MM-DD",
+            "DD-MM-YY or MM-DD-YY"
+          ]
+        },
+        "id": "date_mixed_formats",
+        "plain_english": "The Date column mixes multiple date formats, so the same date may be interpreted differently by different tools.",
+        "rows_affected": 47,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "Department"
+        ],
+        "details": {},
+        "id": "semantic_inconsistent_capitalisation",
+        "plain_english": "The Department column uses inconsistent capitalisation, which can split what should be one category into several versions.",
+        "rows_affected": 47,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": false,
+        "columns": [
+          "Department"
+        ],
+        "details": {},
+        "id": "semantic_near_duplicates",
+        "plain_english": "The Department column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
+        "rows_affected": 47,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "Currency"
+        ],
+        "details": {},
+        "id": "semantic_inconsistent_capitalisation",
+        "plain_english": "The Currency column uses inconsistent capitalisation, which can split what should be one category into several versions.",
+        "rows_affected": 46,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "Currency"
+        ],
+        "details": {},
+        "id": "semantic_near_duplicates",
+        "plain_english": "The Currency column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
+        "rows_affected": 46,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "Amount"
+        ],
+        "details": {},
+        "id": "semantic_near_duplicates",
+        "plain_english": "The Amount column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
+        "rows_affected": 45,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": false,
+        "columns": [
+          "Amount"
+        ],
+        "details": {},
+        "id": "semantic_outliers",
+        "plain_english": "The Amount column contains outlier values that look unusually large or small compared with the rest of the file.",
+        "rows_affected": 45,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "Status"
+        ],
+        "details": {},
+        "id": "semantic_inconsistent_capitalisation",
+        "plain_english": "The Status column uses inconsistent capitalisation, which can split what should be one category into several versions.",
+        "rows_affected": 44,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "Status"
+        ],
+        "details": {},
+        "id": "semantic_near_duplicates",
+        "plain_english": "The Status column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
+        "rows_affected": 44,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "file-wide"
+        ],
+        "details": {},
+        "id": "encoding_suspicious_chars",
+        "plain_english": "Some characters look corrupted, which may change names, notes, or other text values.",
+        "rows_affected": 3,
+        "severity": "warning"
+      },
+      {
+        "auto_fixable": true,
+        "columns": [
+          "row structure"
+        ],
+        "details": {
+          "rows": [
+            7,
+            14
+          ]
+        },
+        "id": "structural_empty_rows",
+        "plain_english": "Completely blank rows are mixed into the file and can interfere with import counts and analysis.",
+        "rows_affected": 2,
+        "severity": "warning"
+      }
+    ]
+  },
+  "pii_warning": "⚠️ This file appears to contain PII. Handle according to your data protection policy.",
+  "post_heal_score": {
+    "deductions": {
+      "data_quality": 4,
+      "date_chaos": 0,
+      "duplicates": 0,
+      "encoding": 0,
+      "missing_data": 1,
+      "structural": 0
+    },
+    "label": "Excellent — minor cleanup only",
+    "metrics": {
+      "date_columns_affected": 0,
+      "encoding_issue_count": 0,
+      "overall_null_percentage": 3.75,
+      "semantic_issue_types": 2,
+      "structural_issue_count": 0
+    },
+    "score": 95
+  },
+  "raw_health_score": {
+    "deductions": {
+      "data_quality": 10,
+      "date_chaos": 5,
+      "duplicates": 10,
+      "encoding": 10,
+      "missing_data": 3,
+      "structural": 30
+    },
+    "label": "Poor — major surgery required",
+    "metrics": {
+      "date_columns_affected": 1,
+      "encoding_issue_count": 2,
+      "overall_null_percentage": 11.14,
+      "semantic_issue_types": 5,
+      "structural_issue_count": 3
+    },
+    "score": 32
+  },
+  "recommended_actions": [
+    "Run sheet-doctor healing now: it can automatically address 8 issue type(s) across 13 flagged issue instance(s)",
+    "Review 5 row(s) in the Quarantine tab that could not be repaired safely",
+    "Manually inspect 8 cleaned row(s) still flagged `needs_review=TRUE` before relying on them downstream",
+    "Normalize mixed date formats in Date (4 formats across about 47 populated row(s)) (auto-fixable)",
+    "Review near-duplicate values in Department, Currency, Amount, Status to decide which versions should be merged or kept",
+    "Manually check outlier values in Amount before trusting totals or downstream analysis"
+  ],
+  "recoverability_score": {
+    "label": "Good — a few issues to address",
+    "metrics": {
+      "clean_rows": 40,
+      "modified_rows": 39,
+      "needs_review_rows": 8,
+      "quarantine_rows": 5,
+      "salvage_ratio": 0.8889
+    },
+    "score": 84
+  },
+  "run_summary": {
+    "generated_at": "<TIMESTAMP>",
+    "input_file": "/Users/razzo/Documents/For Codex/sheet-doctor/sample-data/extreme_mess.csv",
+    "metrics": {
+      "clean_rows": 40,
+      "detected_format": "csv",
+      "healing_mode": "schema-specific",
+      "issues_found": 16,
+      "post_heal_score": 95,
+      "quarantine_rows": 5,
+      "raw_health_score": 32,
+      "recoverability_score": 84
+    },
+    "output_file": null,
+    "script": "reporter.py",
+    "status": "ok",
+    "tool": "csv-doctor",
+    "warnings": [],
+    "warnings_count": 0
+  },
+  "schema_version": "1.0.0",
+  "source_reports": {
+    "column_detector": {
+      "columns": {
+        "Amount": {
+          "detected_type": "currency/amount",
+          "has_mixed_types": false,
+          "max_value": 45234.5,
+          "min_value": -500.0,
+          "most_common_values": [
+            {
+              "count": 5,
+              "value": "450.00"
+            },
+            {
+              "count": 3,
+              "value": "$1,200.00"
+            },
+            {
+              "count": 3,
+              "value": "567.00"
+            },
+            {
+              "count": 2,
+              "value": "89.50"
+            },
+            {
+              "count": 2,
+              "value": "234.00"
+            }
+          ],
+          "null_count": 6,
+          "null_percentage": 13.04,
+          "sample_values": [
+            "89.00",
+            "567.00",
+            "$1,200.00"
+          ],
+          "suspected_issues": [
+            "Possible duplicates with slight differences",
+            "Outliers detected (values outside 3 standard deviations)"
+          ],
+          "type_scores": {
+            "currency/amount": 10.0,
+            "date": 5.0,
+            "free text": 2.5,
+            "phone number": 2.5,
+            "plain number": 80.0
+          },
+          "unique_count": 28,
+          "unique_percentage": 70.0
+        },
+        "Category": {
+          "detected_type": "categorical",
+          "has_mixed_types": false,
+          "max_value": null,
+          "min_value": null,
+          "most_common_values": [
+            {
+              "count": 13,
+              "value": "Travel"
+            },
+            {
+              "count": 6,
+              "value": "Training"
+            },
+            {
+              "count": 5,
+              "value": "Software"
+            },
+            {
+              "count": 5,
+              "value": "Entertainment"
+            },
+            {
+              "count": 4,
+              "value": "Meals"
+            }
+          ],
+          "null_count": 6,
+          "null_percentage": 13.04,
+          "sample_values": [
+            "Software",
+            "Travel",
+            "Equipment"
+          ],
+          "suspected_issues": [],
+          "type_scores": {
+            "free text": 95.0,
+            "name": 5.0
+          },
+          "unique_count": 8,
+          "unique_percentage": 20.0
+        },
+        "Currency": {
+          "detected_type": "currency code",
+          "has_mixed_types": false,
+          "max_value": null,
+          "min_value": null,
+          "most_common_values": [
+            {
+              "count": 30,
+              "value": "USD"
+            },
+            {
+              "count": 3,
+              "value": "usd"
+            },
+            {
+              "count": 3,
+              "value": "EUR"
+            },
+            {
+              "count": 1,
+              "value": "US Dollar"
+            },
+            {
+              "count": 1,
+              "value": "INR ₹"
+            }
+          ],
+          "null_count": 5,
+          "null_percentage": 10.87,
+          "sample_values": [
+            "usd",
+            "USD",
+            "$"
+          ],
+          "suspected_issues": [
+            "Inconsistent capitalisation",
+            "Possible duplicates with slight differences"
+          ],
+          "type_scores": {
+            "currency code": 87.8,
+            "free text": 9.76,
+            "name": 2.44
+          },
+          "unique_count": 8,
+          "unique_percentage": 19.51
+        },
+        "Date": {
+          "detected_type": "date",
+          "has_mixed_types": false,
+          "max_value": "2023-12-28",
+          "min_value": "2023-01-05",
+          "most_common_values": [
+            {
+              "count": 3,
+              "value": "15/03/2023"
+            },
+            {
+              "count": 3,
+              "value": "2023-01-18T00:00:00Z"
+            },
+            {
+              "count": 1,
+              "value": "20/04/2023"
+            },
+            {
+              "count": 1,
+              "value": "22/11/2023"
+            },
+            {
+              "count": 1,
+              "value": "March 15 2023"
+            }
+          ],
+          "null_count": 4,
+          "null_percentage": 8.7,
+          "sample_values": [
+            "2023-03-20",
+            "2023-01-18T00:00:00Z",
+            "44910"
+          ],
+          "suspected_issues": [
+            "Mixed date formats detected",
+            "Inconsistent capitalisation"
+          ],
+          "type_scores": {
+            "date": 90.48,
+            "free text": 2.38,
+            "phone number": 2.38,
+            "plain number": 4.76
+          },
+          "unique_count": 38,
+          "unique_percentage": 90.48
+        },
+        "Department": {
+          "detected_type": "categorical",
+          "has_mixed_types": false,
+          "max_value": null,
+          "min_value": null,
+          "most_common_values": [
+            {
+              "count": 8,
+              "value": "Marketing"
+            },
+            {
+              "count": 7,
+              "value": "Engineering"
+            },
+            {
+              "count": 6,
+              "value": "Finance"
+            },
+            {
+              "count": 6,
+              "value": "Sales"
+            },
+            {
+              "count": 4,
+              "value": "HR"
+            }
+          ],
+          "null_count": 4,
+          "null_percentage": 8.7,
+          "sample_values": [
+            "engineering dept",
+            "Engineering",
+            "Marketing"
+          ],
+          "suspected_issues": [
+            "Inconsistent capitalisation",
+            "Possible duplicates with slight differences"
+          ],
+          "type_scores": {
+            "country name or code": 7.14,
+            "free text": 92.86
+          },
+          "unique_count": 11,
+          "unique_percentage": 26.19
+        },
+        "Employee Name": {
+          "detected_type": "name",
+          "has_mixed_types": false,
+          "max_value": null,
+          "min_value": null,
+          "most_common_values": [
+            {
+              "count": 3,
+              "value": "Sarah Mitchell"
+            },
+            {
+              "count": 3,
+              "value": "James Rodriguez"
+            },
+            {
+              "count": 2,
+              "value": "Jessica Brown"
+            },
+            {
+              "count": 1,
+              "value": "EXPENSE REPORT FY2023 -- Export: 2023-12-31 | HR System Pro v4.2"
+            },
+            {
+              "count": 1,
+              "value": "Sophie Bernard"
+            }
+          ],
+          "null_count": 2,
+          "null_percentage": 4.35,
+          "sample_values": [
+            "Lisa Thompson",
+            "Sarah Mitchell",
+            "Rachel Green"
+          ],
+          "suspected_issues": [
+            "Inconsistent capitalisation",
+            "Possible PII detected (emails/phones/names)"
+          ],
+          "type_scores": {
+            "free text": 15.91,
+            "name": 84.09
+          },
+          "unique_count": 39,
+          "unique_percentage": 88.64
+        },
+        "Notes": {
+          "detected_type": "free text",
+          "has_mixed_types": false,
+          "max_value": null,
+          "min_value": null,
+          "most_common_values": [
+            {
+              "count": 3,
+              "value": "Flight to NYC for client meeting"
+            },
+            {
+              "count": 3,
+              "value": "Annual license renewal"
+            },
+            {
+              "count": 2,
+              "value": "Train to Boston quarterly review"
+            },
+            {
+              "count": 2,
+              "value": "Keyboard and mouse"
+            },
+            {
+              "count": 1,
+              "value": "Lunch at cafÈ Rouge - team outing"
+            }
+          ],
+          "null_count": 7,
+          "null_percentage": 15.22,
+          "sample_values": [
+            "Mumbai to Delhi flight",
+            "Annual license renewal",
+            "Overpayment reversal"
+          ],
+          "suspected_issues": [],
+          "type_scores": {
+            "free text": 100.0
+          },
+          "unique_count": 33,
+          "unique_percentage": 84.62
+        },
+        "Status": {
+          "detected_type": "categorical",
+          "has_mixed_types": false,
+          "max_value": null,
+          "min_value": null,
+          "most_common_values": [
+            {
+              "count": 12,
+              "value": "Approved"
+            },
+            {
+              "count": 12,
+              "value": "approved"
+            },
+            {
+              "count": 3,
+              "value": "APPROVED"
+            },
+            {
+              "count": 3,
+              "value": "pending"
+            },
+            {
+              "count": 2,
+              "value": "Pending"
+            }
+          ],
+          "null_count": 7,
+          "null_percentage": 15.22,
+          "sample_values": [
+            "approved",
+            "Approved",
+            "rejected"
+          ],
+          "suspected_issues": [
+            "Inconsistent capitalisation",
+            "Possible duplicates with slight differences"
+          ],
+          "type_scores": {
+            "boolean": 79.49,
+            "free text": 15.38,
+            "name": 5.13
+          },
+          "unique_count": 10,
+          "unique_percentage": 25.64
+        }
+      },
+      "summary": {
+        "detected_types": {
+          "categorical": 3,
+          "currency code": 1,
+          "currency/amount": 1,
+          "date": 1,
+          "free text": 1,
+          "name": 1
+        },
+        "issue_counts": {
+          "Inconsistent capitalisation": 5,
+          "Mixed date formats detected": 1,
+          "Outliers detected (values outside 3 standard deviations)": 1,
+          "Possible PII detected (emails/phones/names)": 1,
+          "Possible duplicates with slight differences": 4
+        },
+        "total_columns": 8,
+        "total_rows": 46
+      }
+    },
+    "diagnose": {
+      "column_count": {
+        "expected": 8,
+        "misaligned_rows": [
+          {
+            "count": 9,
+            "row": 10
+          },
+          {
+            "count": 9,
+            "row": 12
+          },
+          {
+            "count": 9,
+            "row": 22
+          },
+          {
+            "count": 9,
+            "row": 45
+          },
+          {
+            "count": 9,
+            "row": 48
+          },
+          {
+            "count": 6,
+            "row": 50
+          },
+          {
+            "count": 5,
+            "row": 51
+          },
+          {
+            "count": 4,
+            "row": 52
+          }
+        ]
+      },
+      "column_quality": {
+        "empty_columns": [],
+        "single_value_columns": {}
+      },
+      "column_semantics": {
+        "columns": {
+          "Amount": {
+            "detected_type": "currency/amount",
+            "has_mixed_types": false,
+            "max_value": 45234.5,
+            "min_value": -500.0,
+            "most_common_values": [
+              {
+                "count": 5,
+                "value": "450.00"
+              },
+              {
+                "count": 3,
+                "value": "$1,200.00"
+              },
+              {
+                "count": 3,
+                "value": "567.00"
+              },
+              {
+                "count": 2,
+                "value": "89.50"
+              },
+              {
+                "count": 2,
+                "value": "234.00"
+              }
+            ],
+            "null_count": 6,
+            "null_percentage": 13.04,
+            "sample_values": [
+              "89.00",
+              "567.00",
+              "$1,200.00"
+            ],
+            "suspected_issues": [
+              "Possible duplicates with slight differences",
+              "Outliers detected (values outside 3 standard deviations)"
+            ],
+            "type_scores": {
+              "currency/amount": 10.0,
+              "date": 5.0,
+              "free text": 2.5,
+              "phone number": 2.5,
+              "plain number": 80.0
+            },
+            "unique_count": 28,
+            "unique_percentage": 70.0
+          },
+          "Category": {
+            "detected_type": "categorical",
+            "has_mixed_types": false,
+            "max_value": null,
+            "min_value": null,
+            "most_common_values": [
+              {
+                "count": 13,
+                "value": "Travel"
+              },
+              {
+                "count": 6,
+                "value": "Training"
+              },
+              {
+                "count": 5,
+                "value": "Software"
+              },
+              {
+                "count": 5,
+                "value": "Entertainment"
+              },
+              {
+                "count": 4,
+                "value": "Meals"
+              }
+            ],
+            "null_count": 6,
+            "null_percentage": 13.04,
+            "sample_values": [
+              "Software",
+              "Travel",
+              "Equipment"
+            ],
+            "suspected_issues": [],
+            "type_scores": {
+              "free text": 95.0,
+              "name": 5.0
+            },
+            "unique_count": 8,
+            "unique_percentage": 20.0
+          },
+          "Currency": {
+            "detected_type": "currency code",
+            "has_mixed_types": false,
+            "max_value": null,
+            "min_value": null,
+            "most_common_values": [
+              {
+                "count": 30,
+                "value": "USD"
+              },
+              {
+                "count": 3,
+                "value": "usd"
+              },
+              {
+                "count": 3,
+                "value": "EUR"
+              },
+              {
+                "count": 1,
+                "value": "US Dollar"
+              },
+              {
+                "count": 1,
+                "value": "INR ₹"
+              }
+            ],
+            "null_count": 5,
+            "null_percentage": 10.87,
+            "sample_values": [
+              "usd",
+              "USD",
+              "$"
+            ],
+            "suspected_issues": [
+              "Inconsistent capitalisation",
+              "Possible duplicates with slight differences"
+            ],
+            "type_scores": {
+              "currency code": 87.8,
+              "free text": 9.76,
+              "name": 2.44
+            },
+            "unique_count": 8,
+            "unique_percentage": 19.51
+          },
+          "Date": {
+            "detected_type": "date",
+            "has_mixed_types": false,
+            "max_value": "2023-12-28",
+            "min_value": "2023-01-05",
+            "most_common_values": [
+              {
+                "count": 3,
+                "value": "15/03/2023"
+              },
+              {
+                "count": 3,
+                "value": "2023-01-18T00:00:00Z"
+              },
+              {
+                "count": 1,
+                "value": "20/04/2023"
+              },
+              {
+                "count": 1,
+                "value": "22/11/2023"
+              },
+              {
+                "count": 1,
+                "value": "March 15 2023"
+              }
+            ],
+            "null_count": 4,
+            "null_percentage": 8.7,
+            "sample_values": [
+              "2023-03-20",
+              "2023-01-18T00:00:00Z",
+              "44910"
+            ],
+            "suspected_issues": [
+              "Mixed date formats detected",
+              "Inconsistent capitalisation"
+            ],
+            "type_scores": {
+              "date": 90.48,
+              "free text": 2.38,
+              "phone number": 2.38,
+              "plain number": 4.76
+            },
+            "unique_count": 38,
+            "unique_percentage": 90.48
+          },
+          "Department": {
+            "detected_type": "categorical",
+            "has_mixed_types": false,
+            "max_value": null,
+            "min_value": null,
+            "most_common_values": [
+              {
+                "count": 8,
+                "value": "Marketing"
+              },
+              {
+                "count": 7,
+                "value": "Engineering"
+              },
+              {
+                "count": 6,
+                "value": "Finance"
+              },
+              {
+                "count": 6,
+                "value": "Sales"
+              },
+              {
+                "count": 4,
+                "value": "HR"
+              }
+            ],
+            "null_count": 4,
+            "null_percentage": 8.7,
+            "sample_values": [
+              "engineering dept",
+              "Engineering",
+              "Marketing"
+            ],
+            "suspected_issues": [
+              "Inconsistent capitalisation",
+              "Possible duplicates with slight differences"
+            ],
+            "type_scores": {
+              "country name or code": 7.14,
+              "free text": 92.86
+            },
+            "unique_count": 11,
+            "unique_percentage": 26.19
+          },
+          "Employee Name": {
+            "detected_type": "name",
+            "has_mixed_types": false,
+            "max_value": null,
+            "min_value": null,
+            "most_common_values": [
+              {
+                "count": 3,
+                "value": "Sarah Mitchell"
+              },
+              {
+                "count": 3,
+                "value": "James Rodriguez"
+              },
+              {
+                "count": 2,
+                "value": "Jessica Brown"
+              },
+              {
+                "count": 1,
+                "value": "EXPENSE REPORT FY2023 -- Export: 2023-12-31 | HR System Pro v4.2"
+              },
+              {
+                "count": 1,
+                "value": "Sophie Bernard"
+              }
+            ],
+            "null_count": 2,
+            "null_percentage": 4.35,
+            "sample_values": [
+              "Lisa Thompson",
+              "Sarah Mitchell",
+              "Rachel Green"
+            ],
+            "suspected_issues": [
+              "Inconsistent capitalisation",
+              "Possible PII detected (emails/phones/names)"
+            ],
+            "type_scores": {
+              "free text": 15.91,
+              "name": 84.09
+            },
+            "unique_count": 39,
+            "unique_percentage": 88.64
+          },
+          "Notes": {
+            "detected_type": "free text",
+            "has_mixed_types": false,
+            "max_value": null,
+            "min_value": null,
+            "most_common_values": [
+              {
+                "count": 3,
+                "value": "Flight to NYC for client meeting"
+              },
+              {
+                "count": 3,
+                "value": "Annual license renewal"
+              },
+              {
+                "count": 2,
+                "value": "Train to Boston quarterly review"
+              },
+              {
+                "count": 2,
+                "value": "Keyboard and mouse"
+              },
+              {
+                "count": 1,
+                "value": "Lunch at cafÈ Rouge - team outing"
+              }
+            ],
+            "null_count": 7,
+            "null_percentage": 15.22,
+            "sample_values": [
+              "Mumbai to Delhi flight",
+              "Annual license renewal",
+              "Overpayment reversal"
+            ],
+            "suspected_issues": [],
+            "type_scores": {
+              "free text": 100.0
+            },
+            "unique_count": 33,
+            "unique_percentage": 84.62
+          },
+          "Status": {
+            "detected_type": "categorical",
+            "has_mixed_types": false,
+            "max_value": null,
+            "min_value": null,
+            "most_common_values": [
+              {
+                "count": 12,
+                "value": "Approved"
+              },
+              {
+                "count": 12,
+                "value": "approved"
+              },
+              {
+                "count": 3,
+                "value": "APPROVED"
+              },
+              {
+                "count": 3,
+                "value": "pending"
+              },
+              {
+                "count": 2,
+                "value": "Pending"
+              }
+            ],
+            "null_count": 7,
+            "null_percentage": 15.22,
+            "sample_values": [
+              "approved",
+              "Approved",
+              "rejected"
+            ],
+            "suspected_issues": [
+              "Inconsistent capitalisation",
+              "Possible duplicates with slight differences"
+            ],
+            "type_scores": {
+              "boolean": 79.49,
+              "free text": 15.38,
+              "name": 5.13
+            },
+            "unique_count": 10,
+            "unique_percentage": 25.64
+          }
+        },
+        "summary": {
+          "detected_types": {
+            "categorical": 3,
+            "currency code": 1,
+            "currency/amount": 1,
+            "date": 1,
+            "free text": 1,
+            "name": 1
+          },
+          "issue_counts": {
+            "Inconsistent capitalisation": 5,
+            "Mixed date formats detected": 1,
+            "Outliers detected (values outside 3 standard deviations)": 1,
+            "Possible PII detected (emails/phones/names)": 1,
+            "Possible duplicates with slight differences": 4
+          },
+          "total_columns": 8,
+          "total_rows": 46
+        }
+      },
+      "contract": {
+        "name": "csv_doctor.diagnose",
+        "version": "1.0.0"
+      },
+      "date_formats": {
+        "Date": {
+          "examples": {
+            "DD-MM-YY or MM-DD-YY": "08-15-23",
+            "DD/MM/YYYY or MM/DD/YYYY": "15/03/2023",
+            "Month D, YYYY": "March 15 2023",
+            "YYYY-MM-DD": "2023-03-20"
+          },
+          "formats_found": [
+            "DD/MM/YYYY or MM/DD/YYYY",
+            "Month D, YYYY",
+            "YYYY-MM-DD",
+            "DD-MM-YY or MM-DD-YY"
+          ]
+        }
+      },
+      "degraded_mode": {
+        "active": false,
+        "reasons": []
+      },
+      "detected_encoding": "MacRoman",
+      "detected_format": "csv",
+      "dialect": {
+        "delimiter": ","
+      },
+      "duplicate_headers": {
+        "duplicate_columns": [],
+        "repeated_header_rows": [
+          17
+        ]
+      },
+      "empty_rows": {
+        "count": 2,
+        "rows": [
+          7,
+          14
+        ]
+      },
+      "encoding": {
+        "confidence": 0.69,
+        "detected": "MacRoman",
+        "is_utf8": false,
+        "suspicious_chars": [
+          "row 5: byte b'\\xe9' at position 73",
+          "row 9: byte b'\\xed' at position 11",
+          "row 18: byte b'\\xe9' at position 1"
+        ]
+      },
+      "file": "extreme_mess.csv",
+      "healing_mode_candidate": "schema-specific",
+      "issues": [
+        {
+          "auto_fixable": true,
+          "columns": [
+            "row structure"
+          ],
+          "details": {
+            "rows": [
+              {
+                "count": 9,
+                "row": 10
+              },
+              {
+                "count": 9,
+                "row": 12
+              },
+              {
+                "count": 9,
+                "row": 22
+              },
+              {
+                "count": 9,
+                "row": 45
+              },
+              {
+                "count": 9,
+                "row": 48
+              },
+              {
+                "count": 6,
+                "row": 50
+              },
+              {
+                "count": 5,
+                "row": 51
+              },
+              {
+                "count": 4,
+                "row": 52
+              }
+            ]
+          },
+          "id": "structural_misaligned_rows",
+          "plain_english": "Some rows have too many or too few columns, which will break imports and shift values into the wrong fields.",
+          "rows_affected": 8,
+          "severity": "critical"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "row structure"
+          ],
+          "details": {
+            "rows": [
+              17
+            ]
+          },
+          "id": "structural_repeated_header_rows",
+          "plain_english": "The header row appears again inside the data, which will be treated as a broken data row during import.",
+          "rows_affected": 1,
+          "severity": "critical"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "file-wide"
+          ],
+          "details": {},
+          "id": "encoding_non_utf8",
+          "plain_english": "The file uses MacRoman instead of UTF-8, so some systems may misread special characters.",
+          "rows_affected": 51,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "Employee Name"
+          ],
+          "details": {},
+          "id": "semantic_inconsistent_capitalisation",
+          "plain_english": "The Employee Name column uses inconsistent capitalisation, which can split what should be one category into several versions.",
+          "rows_affected": 49,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "Date"
+          ],
+          "details": {
+            "formats_found": [
+              "DD/MM/YYYY or MM/DD/YYYY",
+              "Month D, YYYY",
+              "YYYY-MM-DD",
+              "DD-MM-YY or MM-DD-YY"
+            ]
+          },
+          "id": "date_mixed_formats",
+          "plain_english": "The Date column mixes multiple date formats, so the same date may be interpreted differently by different tools.",
+          "rows_affected": 47,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "Department"
+          ],
+          "details": {},
+          "id": "semantic_inconsistent_capitalisation",
+          "plain_english": "The Department column uses inconsistent capitalisation, which can split what should be one category into several versions.",
+          "rows_affected": 47,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": false,
+          "columns": [
+            "Department"
+          ],
+          "details": {},
+          "id": "semantic_near_duplicates",
+          "plain_english": "The Department column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
+          "rows_affected": 47,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "Currency"
+          ],
+          "details": {},
+          "id": "semantic_inconsistent_capitalisation",
+          "plain_english": "The Currency column uses inconsistent capitalisation, which can split what should be one category into several versions.",
+          "rows_affected": 46,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "Currency"
+          ],
+          "details": {},
+          "id": "semantic_near_duplicates",
+          "plain_english": "The Currency column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
+          "rows_affected": 46,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "Amount"
+          ],
+          "details": {},
+          "id": "semantic_near_duplicates",
+          "plain_english": "The Amount column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
+          "rows_affected": 45,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": false,
+          "columns": [
+            "Amount"
+          ],
+          "details": {},
+          "id": "semantic_outliers",
+          "plain_english": "The Amount column contains outlier values that look unusually large or small compared with the rest of the file.",
+          "rows_affected": 45,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "Status"
+          ],
+          "details": {},
+          "id": "semantic_inconsistent_capitalisation",
+          "plain_english": "The Status column uses inconsistent capitalisation, which can split what should be one category into several versions.",
+          "rows_affected": 44,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "Status"
+          ],
+          "details": {},
+          "id": "semantic_near_duplicates",
+          "plain_english": "The Status column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
+          "rows_affected": 44,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "file-wide"
+          ],
+          "details": {},
+          "id": "encoding_suspicious_chars",
+          "plain_english": "Some characters look corrupted, which may change names, notes, or other text values.",
+          "rows_affected": 3,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": true,
+          "columns": [
+            "row structure"
+          ],
+          "details": {
+            "rows": [
+              7,
+              14
+            ]
+          },
+          "id": "structural_empty_rows",
+          "plain_english": "Completely blank rows are mixed into the file and can interfere with import counts and analysis.",
+          "rows_affected": 2,
+          "severity": "warning"
+        },
+        {
+          "auto_fixable": false,
+          "columns": [
+            "Employee Name"
+          ],
+          "details": {},
+          "id": "semantic_pii",
+          "plain_english": "The Employee Name column appears to contain personally identifiable information that may need extra care before sharing.",
+          "rows_affected": 49,
+          "severity": "info"
+        }
+      ],
+      "loader_warnings": [
+        "DataFrame parser skipped 5 data row(s); raw row counts are retained for reporting."
+      ],
+      "row_accounting": {
+        "dropped_rows_total": 5,
+        "malformed_rows": [
+          {
+            "count": 9,
+            "row": 10
+          },
+          {
+            "count": 9,
+            "row": 12
+          },
+          {
+            "count": 9,
+            "row": 22
+          },
+          {
+            "count": 9,
+            "row": 45
+          },
+          {
+            "count": 9,
+            "row": 48
+          },
+          {
+            "count": 6,
+            "row": 50
+          },
+          {
+            "count": 5,
+            "row": 51
+          },
+          {
+            "count": 4,
+            "row": 52
+          }
+        ],
+        "malformed_rows_total": 8,
+        "parsed_rows_total": 46,
+        "raw_data_rows_total": 51,
+        "raw_rows_total": 52
+      },
+      "run_summary": {
+        "generated_at": "<TIMESTAMP>",
+        "input_file": "/Users/razzo/Documents/For Codex/sheet-doctor/sample-data/extreme_mess.csv",
+        "metrics": {
+          "degraded_mode_active": false,
+          "detected_format": "csv",
+          "healing_mode_candidate": "schema-specific",
+          "issues_found": 7,
+          "parsed_rows_total": 46,
+          "raw_rows_total": 52,
+          "verdict": "CRITICAL"
+        },
+        "output_file": null,
+        "script": "diagnose.py",
+        "status": "ok",
+        "tool": "csv-doctor",
+        "warnings": [
+          "DataFrame parser skipped 5 data row(s); raw row counts are retained for reporting."
+        ],
+        "warnings_count": 1
+      },
+      "schema_version": "1.0.0",
+      "summary": {
+        "issue_count": 7,
+        "verdict": "CRITICAL"
+      },
+      "tool_version": "0.5.0-dev",
+      "total_rows": 52,
+      "whitespace_headers": []
+    }
+  },
+  "text_report": "SECTION 1 — FILE OVERVIEW\n📄 File: extreme_mess.csv\n📊 Size: 51 rows × 8 columns\n🧾 Parsed cleanly: 46 rows\n🧯 Malformed rows: 8 | Skipped by parser: 5\n💾 Format: csv\n🔤 Encoding: MacRoman\n⏱  Scanned: <TIMESTAMP>\n\nSECTION 2 — HEALTH SCORE\n🩺 Raw Health Score: 32/100 (Poor — major surgery required)\n🛟 Recoverability Score: 84/100 (Good — a few issues to address)\n✨ Post-Heal Score: 95/100 (Excellent — minor cleanup only)\n  • Raw deductions — Encoding: -10, Structural: -30, Date chaos: -5, Missing data: -3, Duplicates: -10, Data quality: -10\n  • Healing projection — Clean rows: 40, Quarantine rows: 5, Needs review: 8, Fixed changes: 99\n\n⚠️ This file appears to contain PII. Handle according to your data protection policy.\n\nSECTION 3 — ISSUES FOUND\n🚨 Critical (will break imports)\n- Some rows have too many or too few columns, which will break imports and shift values into the wrong fields.\n  Columns: row structure\n  Rows affected: 8\n  Auto-fixable: ✅\n- The header row appears again inside the data, which will be treated as a broken data row during import.\n  Columns: row structure\n  Rows affected: 1\n  Auto-fixable: ✅\n\n⚠️  Warning (will cause analysis errors)\n- The file uses MacRoman instead of UTF-8, so some systems may misread special characters.\n  Columns: file-wide\n  Rows affected: 51\n  Auto-fixable: ✅\n- The Employee Name column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Employee Name\n  Rows affected: 49\n  Auto-fixable: ✅\n- The Date column mixes multiple date formats, so the same date may be interpreted differently by different tools.\n  Columns: Date\n  Rows affected: 47\n  Auto-fixable: ✅\n- The Department column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Department\n  Rows affected: 47\n  Auto-fixable: ✅\n- The Department column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Department\n  Rows affected: 47\n  Auto-fixable: ❌\n- The Currency column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Currency\n  Rows affected: 46\n  Auto-fixable: ✅\n- The Currency column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Currency\n  Rows affected: 46\n  Auto-fixable: ✅\n- The Amount column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Amount\n  Rows affected: 45\n  Auto-fixable: ✅\n- The Amount column contains outlier values that look unusually large or small compared with the rest of the file.\n  Columns: Amount\n  Rows affected: 45\n  Auto-fixable: ❌\n- The Status column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Status\n  Rows affected: 44\n  Auto-fixable: ✅\n- The Status column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Status\n  Rows affected: 44\n  Auto-fixable: ✅\n- Some characters look corrupted, which may change names, notes, or other text values.\n  Columns: file-wide\n  Rows affected: 3\n  Auto-fixable: ✅\n- Completely blank rows are mixed into the file and can interfere with import counts and analysis.\n  Columns: row structure\n  Rows affected: 2\n  Auto-fixable: ✅\n\nℹ️  Info (cosmetic, worth fixing)\n- The Employee Name column appears to contain personally identifiable information that may need extra care before sharing.\n  Columns: Employee Name\n  Rows affected: 49\n  Auto-fixable: ❌\n\nSECTION 4 — COLUMN BREAKDOWN\nEmployee Name | name | 4.35% null | Inconsistent capitalisation; Possible PII detected (emails/phones/names)\nDepartment | categorical | 8.7% null | Inconsistent capitalisation; Possible duplicates with slight differences\nDate | date | 8.7% null | Mixed date formats detected; Inconsistent capitalisation\nAmount | currency/amount | 13.04% null | Possible duplicates with slight differences; Outliers detected (values outside 3 standard deviations)\nCurrency | currency code | 10.87% null | Inconsistent capitalisation; Possible duplicates with slight differences\nCategory | categorical | 13.04% null | No major issues detected\nStatus | categorical | 15.22% null | Inconsistent capitalisation; Possible duplicates with slight differences\nNotes | free text | 15.22% null | No major issues detected\n\nSECTION 5 — RECOMMENDED ACTIONS\n1. Run sheet-doctor healing now: it can automatically address 8 issue type(s) across 13 flagged issue instance(s)\n2. Review 5 row(s) in the Quarantine tab that could not be repaired safely\n3. Manually inspect 8 cleaned row(s) still flagged `needs_review=TRUE` before relying on them downstream\n4. Normalize mixed date formats in Date (4 formats across about 47 populated row(s)) (auto-fixable)\n5. Review near-duplicate values in Department, Currency, Amount, Status to decide which versions should be merged or kept\n6. Manually check outlier values in Amount before trusting totals or downstream analysis\n\nSECTION 6 — ASSUMPTIONS\n• Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values\n• Ambiguous DD/MM vs MM/DD dates: day-first assumed; fallback to month-first if day-first is impossible\n• MM-DD-YY two-digit years: treated as 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50\n• Unix timestamps: interpreted as UTC; converted to YYYY-MM-DD\n• Excel serial dates: Windows epoch (1899-12-30); range 40,000–55,000 treated as dates\n• European decimal 1.200,00: detected when period precedes comma; converted to 1200.00\n• Combined values like '$1,200 USD' are split so Amount keeps the numeric value and Currency keeps the ISO code\n• Blank / N/A / TBD amounts: cleared to empty string and flagged needs_review=TRUE\n• \"INR ₹\" and similar symbol+code combos: symbol stripped, ISO code kept\n• \"Eng\" department abbreviation: kept as-is (expanding abbreviations requires a lookup table)\n• Short blank runs in categorical columns are forward-filled when they look like merged-cell export gaps; filled rows are flagged for review\n• Rows with long single-cell prose are treated as notes/metadata rather than transactional data\n• Rows labelled TOTAL/Subtotal/SUM are quarantined when the amount matches the running total closely enough to look calculated\n• Near-duplicate rows (same Name/Amount/Currency/Category, date within 2 days): both kept, both flagged\n• Exact duplicates: first occurrence kept; subsequent occurrences removed and logged\n• Short rows (< 8 columns): padded with empty strings; flagged needs_review=TRUE\n• Metadata export row (sparse, 1/8 fields filled): quarantined as 'Less than 50% columns filled'\n",
+  "tool_version": "0.5.0-dev"
+}

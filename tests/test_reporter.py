@@ -1,6 +1,9 @@
 import importlib.util
+import json
+import re
 import sys
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 
@@ -8,6 +11,7 @@ REPO_ROOT = Path("/Users/razzo/Documents/For Codex/sheet-doctor")
 REPORTER_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "reporter.py"
 LOADER_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "loader.py"
 EXTREME_MESS_PATH = REPO_ROOT / "sample-data" / "extreme_mess.csv"
+GOLDEN_DIR = REPO_ROOT / "tests" / "golden"
 
 
 def load_module(path: Path, module_name: str):
@@ -89,6 +93,36 @@ class ReporterTests(unittest.TestCase):
         self.assertEqual(projection["clean_rows"], 40)
         self.assertEqual(projection["quarantine_rows"], 5)
         self.assertEqual(projection["needs_review_rows"], 8)
+
+    def test_report_text_matches_golden_snapshot(self):
+        report = self.reporter.build_report(EXTREME_MESS_PATH)
+        actual = self.normalise_text_report(report["text_report"])
+        expected = (GOLDEN_DIR / "extreme_mess_report.txt").read_text(encoding="utf-8")
+        self.assertEqual(actual, expected)
+
+    def test_report_json_matches_golden_snapshot(self):
+        report = self.reporter.build_report(EXTREME_MESS_PATH)
+        actual = json.dumps(self.normalise_report_json(report), indent=2, ensure_ascii=False, sort_keys=True)
+        expected = (GOLDEN_DIR / "extreme_mess_report.json").read_text(encoding="utf-8")
+        self.assertEqual(actual, expected)
+
+    @staticmethod
+    def normalise_text_report(text: str) -> str:
+        return re.sub(
+            r"^⏱  Scanned: .+$",
+            "⏱  Scanned: <TIMESTAMP>",
+            text,
+            flags=re.MULTILINE,
+        )
+
+    @classmethod
+    def normalise_report_json(cls, report: dict) -> dict:
+        payload = deepcopy(report)
+        payload["file_overview"]["scanned_at"] = "<TIMESTAMP>"
+        payload["run_summary"]["generated_at"] = "<TIMESTAMP>"
+        payload["source_reports"]["diagnose"]["run_summary"]["generated_at"] = "<TIMESTAMP>"
+        payload["text_report"] = cls.normalise_text_report(payload["text_report"])
+        return payload
 
 
 if __name__ == "__main__":
