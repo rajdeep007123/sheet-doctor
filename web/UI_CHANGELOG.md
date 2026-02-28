@@ -16,6 +16,7 @@ Notes specific to the local `web/app.py` interface live here so UI work can move
   - effective headers after workbook preprocessing
   - chosen semantic columns with confidence
   - applied override summary when the user forces a header row or semantic role
+  - detected-vs-final semantic mapping comparison before rescue execution
 - Public URL rewriting for common share links:
   - GitHub `blob` -> raw file
   - Dropbox -> direct download

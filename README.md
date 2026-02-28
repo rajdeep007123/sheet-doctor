@@ -82,6 +82,7 @@ Workbook-semantic behavior:
 - stacked workbook header bands can now be merged into one semantic header row before normalization
 - ragged workbook/report layouts with sparse leading or trailing columns now trim those sparse edges before header and semantic detection
 - clinical/report-style workbook columns such as `Ward` now participate in semantic fill-down so merged-cell style blanks remain readable after healing
+- non-financial workbook tables can now enter `semantic` mode when they still strongly map to roles such as `name`, `date`, `status`, `department`, and `notes`
 
 Deployable machine outputs:
 - JSON-producing scripts now emit `contract`, `schema_version`, `tool_version`, and `run_summary`
@@ -213,6 +214,7 @@ What the UI currently does:
 - Preview workbook interpretation before healing, including detected header bands, metadata rows removed, effective headers, and chosen semantic columns
 - Let the user override the detected workbook header row before healing
 - Let the user override semantic column roles in the UI before tabular rescue healing
+- Show a detected-vs-final mapping comparison so users can see what changed before they run rescue
 - Route to diagnose or heal flows
 - Process files sequentially with an in-app progress loader
 - Show source-specific notes for special URL handling such as Google Sheets export

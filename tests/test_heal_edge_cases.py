@@ -337,6 +337,10 @@ class HealEdgeCaseTests(unittest.TestCase):
             self.assertEqual(applied[2], "category")
             roles = {entry["column_index"]: entry["role"] for entry in inspection["semantic_columns"]}
             self.assertEqual(roles[2], "category")
+            comparison = {entry["column_index"]: entry for entry in inspection["semantic_comparison"]}
+            self.assertEqual(comparison[2]["override_role"], "category")
+            self.assertEqual(comparison[2]["final_role"], "category")
+            self.assertEqual(comparison[1]["detected_role"], "name")
 
     def test_execute_healing_handles_ragged_clinical_layout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -364,6 +368,58 @@ class HealEdgeCaseTests(unittest.TestCase):
             self.assertEqual(result["clean_data"][1].row[1], "Ward A")
             self.assertEqual(result["clean_data"][1].row[4], "88.00")
             self.assertEqual(result["clean_data"][1].row[5], "USD")
+
+    def test_execute_healing_semantic_mode_without_amount_column(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "clinical_status.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Clinical Log"
+            ws.append(["Hospital Census Export", "", "", "", "", "", "", ""])
+            ws.append(["", "", "Patient", "", "Visit", "", "Review", ""])
+            ws.append(["", "", "", "", "Encounter", "", "Disposition", ""])
+            ws.append(["", "", "Name", "Ward", "Date", "Clinic", "Status", "Notes"])
+            ws.append(["", "", "jane doe", "Ward B", "2023/01/15", "North Wing", "pending review", "needs callback"])
+            ws.append(["", "", "john smith", "", "15-01-2023", "North Wing", "approved", "seen by nurse"])
+            wb.save(path)
+
+            inspection = self.heal.inspect_healing_plan(path, sheet_name="Clinical Log")
+            result = self.heal.execute_healing(path, sheet_name="Clinical Log")
+
+            self.assertEqual(inspection["healing_mode_candidate"], "semantic")
+            self.assertEqual(inspection["detected_header_band_rows"], [2, 3, 4])
+            self.assertEqual(result["mode"], "semantic")
+            self.assertEqual(result["clean_data"][0].row[0], "Jane Doe")
+            self.assertEqual(result["clean_data"][0].row[2], "2023-01-15")
+            self.assertEqual(result["clean_data"][0].row[4], "Pending")
+            self.assertEqual(result["clean_data"][1].row[1], "Ward B")
+            self.assertEqual(result["clean_data"][1].row[2], "2023-01-15")
+            self.assertEqual(result["clean_data"][1].row[4], "Approved")
+
+    def test_execute_healing_semantic_mode_on_stacked_report_without_amount(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "stacked_report.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Ops"
+            ws.append(["Operations Snapshot", "", "", "", "", "", "", ""])
+            ws.append(["Employee", "", "Visit", "", "Review", "", "", ""])
+            ws.append(["", "", "Encounter", "", "Disposition", "", "", ""])
+            ws.append(["Name", "Unit", "Date", "Clinic", "Status", "Notes", "", ""])
+            ws.append(["amy pond", "Ward C", "2023-01-18", "East Wing", "approved", "discharged", "", ""])
+            wb.save(path)
+
+            inspection = self.heal.inspect_healing_plan(path, sheet_name="Ops")
+            result = self.heal.execute_healing(path, sheet_name="Ops")
+
+            roles = {entry["header"]: entry["role"] for entry in inspection["semantic_columns"]}
+            self.assertEqual(roles["Employee Name"], "name")
+            self.assertEqual(roles["Employee Unit"], "department")
+            self.assertEqual(result["mode"], "semantic")
+            self.assertEqual(result["clean_data"][0].row[0], "Amy Pond")
+            self.assertEqual(result["clean_data"][0].row[1], "Ward C")
+            self.assertEqual(result["clean_data"][0].row[2], "2023-01-18")
+            self.assertEqual(result["clean_data"][0].row[4], "Approved")
 
 
 if __name__ == "__main__":

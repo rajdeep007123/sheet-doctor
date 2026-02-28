@@ -45,6 +45,7 @@ All notable changes to sheet-doctor are documented here.
   - Exposes sheet selection / consolidation controls for workbook preview in the UI
   - Shows workbook interpretation previews before healing, including detected header-band rows, metadata rows removed, effective headers, and chosen semantic columns
   - Lets users override the detected workbook header row and semantic column roles before running tabular rescue healing
+  - Shows a detected-vs-final semantic mapping comparison before rescue runs so workbook overrides are visible before execution
   - Supports sequential batch processing with in-app status/progress and per-file download buttons
 - **`tests/test_loader.py`** — regression coverage for the universal loader:
   - Local behavior tests for strict `.txt` rejection and explicit multi-sheet workbook selection in non-interactive mode
@@ -68,6 +69,8 @@ All notable changes to sheet-doctor are documented here.
   - Multi-row workbook header bands are now merged into a single semantic header row before healing continues
   - Sparse leading/trailing workbook columns are now trimmed before semantic planning so ragged clinical/report layouts remain recoverable
   - Clinical/report-style fields such as `Ward` now map into semantic fill-down columns so merged-cell export gaps are repaired in the tested path
+  - Semantic mode no longer requires an amount column in the tested path; non-financial workbook reports can still normalize `name`, `date`, `status`, `department`, and `notes`
+  - Header detection now compares candidate rows against next-row data signals so text-heavy workbook data rows are less likely to be mistaken for headers
 - **`csv-doctor` / `diagnose.py`** — now emits deployable contract metadata:
   - Added `contract`, `schema_version`, `tool_version`, and `run_summary`
   - Exposes `degraded_mode` from the loader in the JSON report when active

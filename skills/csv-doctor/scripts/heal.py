@@ -118,12 +118,12 @@ STATUS_VALUE_HINTS = set(STATUS_MAP.keys()) if "STATUS_MAP" in globals() else {
     "approved", "approve", "rejected", "reject", "pending", "pending review",
 }
 ROLE_HEADER_HINTS = {
-    "name": ("name", "employee", "emp", "person", "contact"),
+    "name": ("name", "person", "contact"),
     "date": ("date", "dated", "txn date", "transaction", "invoice date", "posted"),
     "amount": ("amount", "cost", "price", "value", "expense", "spend", "salary", "pay", "total"),
     "currency": ("currency", "curr", "fx", "ccy"),
     "status": ("status", "state", "approval", "approved", "decision"),
-    "department": ("department", "dept", "division", "team", "unit", "function", "ward", "location"),
+    "department": ("department", "dept", "division", "team", "unit", "function", "ward", "location", "clinic"),
     "category": ("category", "type", "class", "group", "bucket", "expense type"),
     "notes": ("notes", "note", "comment", "comments", "description", "details", "memo", "remarks"),
 }
@@ -182,6 +182,31 @@ def _looks_like_header_row(row: list[str]) -> bool:
     return alpha_cells >= max(2, len(non_empty) - 1) and numeric_heavy <= 1
 
 
+DATE_SIGNAL_RE = re.compile(
+    r"(\b\d{1,4}[/-]\d{1,2}[/-]\d{1,4}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)",
+    re.IGNORECASE,
+)
+
+
+def _row_data_signal_count(row: list[str]) -> int:
+    signals = 0
+    for cell in _non_empty_cells(row):
+        lowered = cell.lower()
+        if parse_amount_like(cell) is not None:
+            signals += 1
+            continue
+        extracted_amount, _ = extract_currency_from_text(cell)
+        if extracted_amount and parse_amount_like(extracted_amount) is not None:
+            signals += 1
+            continue
+        if lowered in STATUS_VALUE_HINTS:
+            signals += 1
+            continue
+        if DATE_SIGNAL_RE.search(cell):
+            signals += 1
+    return signals
+
+
 def detect_header_row_index(all_rows: list[list[str]], explicit_header_row: int | None = None) -> int:
     if explicit_header_row is not None:
         return max(0, min(len(all_rows) - 1, explicit_header_row - 1))
@@ -199,13 +224,20 @@ def detect_header_row_index(all_rows: list[list[str]], explicit_header_row: int 
         if idx < len(all_rows) - 1 and _looks_like_header_row(row)
     ]
     if generic_candidates:
+        signal_candidates = [
+            idx for idx in generic_candidates
+            if _row_data_signal_count(all_rows[idx + 1]) > _row_data_signal_count(all_rows[idx])
+            and _row_data_signal_count(all_rows[idx + 1]) > 0
+        ]
+        if signal_candidates:
+            return signal_candidates[-1]
         return generic_candidates[-1]
     return 0
 
 
 def detect_header_band_start_index(all_rows: list[list[str]], header_idx: int) -> int:
     band_start = header_idx
-    max_band_rows = 3
+    max_band_rows = 4
 
     while band_start > 0 and (header_idx - band_start + 1) < max_band_rows:
         previous = all_rows[band_start - 1]
@@ -754,6 +786,27 @@ def normalise_date(value: str) -> tuple[str, bool, str]:
     if m:
         a, b, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
         for day, month, fmt in [(a, b, "DD/MM/YYYY"), (b, a, "MM/DD/YYYY")]:
+            try:
+                return _fmt(datetime(year, month, day)), True, \
+                       f"{fmt} normalised to ISO YYYY-MM-DD (day-first assumed for ambiguous dates)"
+            except ValueError:
+                continue
+        return v, False, ""
+
+    # YYYY/MM/DD
+    m = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2})$", v)
+    if m:
+        year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            return _fmt(datetime(year, month, day)), True, "Slash-separated ISO-style date normalised to YYYY-MM-DD"
+        except ValueError:
+            return v, False, ""
+
+    # DD-MM-YYYY or MM-DD-YYYY — prefer day-first, fall back to month-first
+    m = re.match(r"^(\d{1,2})-(\d{1,2})-(\d{4})$", v)
+    if m:
+        a, b, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        for day, month, fmt in [(a, b, "DD-MM-YYYY"), (b, a, "MM-DD-YYYY")]:
             try:
                 return _fmt(datetime(year, month, day)), True, \
                        f"{fmt} normalised to ISO YYYY-MM-DD (day-first assumed for ambiguous dates)"
@@ -1369,6 +1422,7 @@ def _average_sample_length(column_stats: dict) -> float:
 
 def _semantic_role_scores(header: str, column_stats: dict) -> dict[str, float]:
     detected_type = column_stats.get("detected_type", "unknown")
+    header_text = _header_text(header)
     scores = {
         "name": 0.0,
         "date": 0.0,
@@ -1401,10 +1455,14 @@ def _semantic_role_scores(header: str, column_stats: dict) -> dict[str, float]:
 
     for role in scores:
         if _header_matches_role(header, role):
-            if role in {"name", "currency"}:
+            if role == "name":
+                scores[role] += 0.82 if re.search(r"\bname\b", header_text) else 0.68
+            elif role == "currency":
                 scores[role] += 0.68
             elif role in {"date", "amount"}:
                 scores[role] += 0.32
+            elif role == "department":
+                scores[role] += 0.82 if re.search(r"\b(ward|clinic|division|department|dept|team|unit|function|location)\b", header_text) else 0.68
             else:
                 scores[role] += 0.68
 
@@ -1509,10 +1567,11 @@ def build_semantic_plan(
             confidences[idx] = 1.0
 
     primary_roles = set(assignments.values())
-    enabled = (
-        "amount" in primary_roles
-        and len(primary_roles.intersection({"name", "date", "currency", "status", "department", "category"})) >= 2
-    )
+    enabled = False
+    if "amount" in primary_roles and len(primary_roles.intersection({"name", "date", "currency", "status", "department", "category"})) >= 2:
+        enabled = True
+    elif len(primary_roles.intersection({"name", "date", "status", "department", "category", "notes"})) >= 3:
+        enabled = True
     if not enabled:
         return SemanticPlan(False, {}, {}, 0, None, None, None, [])
 
@@ -1535,6 +1594,44 @@ def build_semantic_plan(
         date_idx=next((idx for idx, role in assignments.items() if role == "date"), None),
         fill_down_indices=fill_down_indices,
     )
+
+
+def _semantic_columns_from_plan(headers: list[str], semantic_plan: SemanticPlan) -> list[dict]:
+    return [
+        {
+            "column_index": idx + 1,
+            "header": headers[idx],
+            "role": role,
+            "confidence": semantic_plan.confidence_by_index.get(idx, 0.0),
+        }
+        for idx, role in sorted(semantic_plan.roles_by_index.items())
+    ]
+
+
+def _semantic_mapping_comparison(
+    headers: list[str],
+    suggested_plan: SemanticPlan,
+    effective_plan: SemanticPlan,
+    role_overrides: dict[int, str] | None = None,
+) -> list[dict]:
+    overrides = role_overrides or {}
+    rows: list[dict] = []
+    for idx, header in enumerate(headers):
+        suggested_role = suggested_plan.roles_by_index.get(idx)
+        effective_role = effective_plan.roles_by_index.get(idx)
+        override_role = overrides.get(idx)
+        rows.append(
+            {
+                "column_index": idx + 1,
+                "header": header,
+                "detected_role": suggested_role or "",
+                "detected_confidence": suggested_plan.confidence_by_index.get(idx, 0.0),
+                "override_role": override_role or "",
+                "final_role": effective_role or "",
+                "final_confidence": effective_plan.confidence_by_index.get(idx, 0.0),
+            }
+        )
+    return rows
 
 
 def inspect_healing_plan(
@@ -1570,7 +1667,7 @@ def inspect_healing_plan(
     )
 
     raw_header = preprocessed_rows[0]
-    if is_schema_specific_header(raw_header):
+    if is_schema_specific_header(raw_header) and not role_overrides:
         headers = HEADERS[:]
         mode = "schema-specific"
         semantic_columns = [
@@ -1587,24 +1684,37 @@ def inspect_healing_plan(
                 )
             )
         ]
+        suggested_semantic_columns = list(semantic_columns)
+        semantic_comparison = [
+            {
+                "column_index": idx + 1,
+                "header": header,
+                "detected_role": role,
+                "detected_confidence": 0.99,
+                "override_role": (role_overrides or {}).get(idx, ""),
+                "final_role": (role_overrides or {}).get(idx, role) if (role_overrides or {}).get(idx) != "ignore" else "",
+                "final_confidence": 1.0 if idx in (role_overrides or {}) and (role_overrides or {}).get(idx) != "ignore" else 0.99,
+            }
+            for idx, (header, role) in enumerate(
+                zip(
+                    headers,
+                    ["name", "department", "date", "amount", "currency", "category", "status", "notes"],
+                )
+            )
+        ]
     else:
         headers, _ = normalise_headers_generic(raw_header)
-        semantic_plan = build_semantic_plan(
+        suggested_plan = build_semantic_plan(
             headers,
             preprocessed_rows[1:],
             delimiter,
-            role_overrides=role_overrides,
+            role_overrides=None,
         )
+        semantic_plan = build_semantic_plan(headers, preprocessed_rows[1:], delimiter, role_overrides=role_overrides)
         mode = "semantic" if semantic_plan.enabled else "generic"
-        semantic_columns = [
-            {
-                "column_index": idx + 1,
-                "header": headers[idx],
-                "role": role,
-                "confidence": semantic_plan.confidence_by_index.get(idx, 0.0),
-            }
-            for idx, role in sorted(semantic_plan.roles_by_index.items())
-        ]
+        suggested_semantic_columns = _semantic_columns_from_plan(headers, suggested_plan)
+        semantic_columns = _semantic_columns_from_plan(headers, semantic_plan)
+        semantic_comparison = _semantic_mapping_comparison(headers, suggested_plan, semantic_plan, role_overrides=role_overrides)
 
     return {
         "delimiter": delimiter,
@@ -1615,7 +1725,9 @@ def inspect_healing_plan(
         "header_band_merged": header_band_merged,
         "effective_headers": headers,
         "healing_mode_candidate": mode,
+        "suggested_semantic_columns": suggested_semantic_columns,
         "semantic_columns": semantic_columns,
+        "semantic_comparison": semantic_comparison,
         "applied_role_overrides": {
             str(idx + 1): role for idx, role in sorted((role_overrides or {}).items())
         },
@@ -2141,7 +2253,7 @@ def execute_healing(
     if len(all_rows) < 2:
         raise ValueError("File is empty after metadata/header detection.")
 
-    if is_schema_specific_header(all_rows[0]):
+    if is_schema_specific_header(all_rows[0]) and not role_overrides:
         mode = "schema-specific"
         clean_data, quarantine, changelog = process_schema_specific(
             all_rows,

@@ -783,12 +783,28 @@ def render_workbook_semantics(inspection: dict) -> None:
         st.caption("Effective headers after workbook interpretation")
         st.code(" | ".join(headers))
 
+    suggested_columns = inspection.get("suggested_semantic_columns") or []
     semantic_columns = inspection.get("semantic_columns") or []
+    semantic_comparison = inspection.get("semantic_comparison") or []
     if semantic_columns:
         st.caption("Chosen semantic columns")
         st.dataframe(pd.DataFrame(semantic_columns), width="stretch", hide_index=True)
     else:
         st.info("No confident semantic column mapping was detected for this workbook preview.")
+    if suggested_columns and semantic_comparison:
+        st.caption("Detected mapping vs your overrides")
+        comparison_df = pd.DataFrame(semantic_comparison).rename(
+            columns={
+                "column_index": "#",
+                "header": "Header",
+                "detected_role": "Detected role",
+                "detected_confidence": "Detected confidence",
+                "override_role": "Override",
+                "final_role": "Final role",
+                "final_confidence": "Final confidence",
+            }
+        )
+        st.dataframe(comparison_df, width="stretch", hide_index=True)
     if inspection.get("applied_role_overrides"):
         st.caption(f"Applied overrides: {inspection['applied_role_overrides']}")
 
