@@ -1668,45 +1668,86 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main():
-    args = parse_args(sys.argv[1:])
-    input_path = Path(args.input)
-    output_path = Path(args.output)
-
+def execute_healing(
+    input_path: Path,
+    *,
+    sheet_name: str | None = None,
+    consolidate_sheets: bool | None = None,
+) -> dict:
     if not input_path.exists():
-        print(f"ERROR: File not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"File not found: {input_path}")
 
     all_rows, delimiter = read_file(
         input_path,
-        sheet_name=args.sheet_name,
-        consolidate_sheets=True if args.all_sheets else None,
+        sheet_name=sheet_name,
+        consolidate_sheets=consolidate_sheets,
     )
     if len(all_rows) < 2:
-        print("ERROR: File is empty or has only a header.", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError("File is empty or has only a header.")
 
     original_total_in = len(all_rows)
     all_rows, metadata_changes = preprocess_rows(all_rows)
     if len(all_rows) < 2:
-        print("ERROR: File is empty after metadata/header detection.", file=sys.stderr)
-        sys.exit(1)
-
-    total_in = original_total_in   # includes metadata/header rows as they arrived
+        raise ValueError("File is empty after metadata/header detection.")
 
     if is_schema_specific_header(all_rows[0]):
         mode = "schema-specific"
-        clean_data, quarantine, changelog = process_schema_specific(all_rows, initial_changelog=metadata_changes)
+        clean_data, quarantine, changelog = process_schema_specific(
+            all_rows,
+            initial_changelog=metadata_changes,
+        )
         headers = HEADERS
         assumptions = ASSUMPTIONS
     else:
-        clean_data, quarantine, changelog, headers, mode = process_generic(all_rows, delimiter, initial_changelog=metadata_changes)
+        clean_data, quarantine, changelog, headers, mode = process_generic(
+            all_rows,
+            delimiter,
+            initial_changelog=metadata_changes,
+        )
         assumptions = SEMANTIC_ASSUMPTIONS if mode == "semantic" else GENERIC_ASSUMPTIONS
 
-    write_workbook(clean_data, quarantine, changelog, output_path, headers=headers)
-
-    # ── Counts by action type ─────────────────────────────────────────────
     action_counts = Counter(c.action_taken for c in changelog)
+    quarantine_reason_counts = {
+        reason: sum(1 for q in quarantine if q.reason == reason)
+        for reason in {q.reason for q in quarantine}
+    }
+
+    return {
+        "input_path": input_path,
+        "delimiter": delimiter,
+        "total_in": original_total_in,
+        "mode": mode,
+        "headers": headers,
+        "assumptions": assumptions,
+        "clean_data": clean_data,
+        "quarantine": quarantine,
+        "changelog": changelog,
+        "action_counts": action_counts,
+        "quarantine_reason_counts": dict(sorted(quarantine_reason_counts.items())),
+    }
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+    try:
+        result = execute_healing(
+            input_path,
+            sheet_name=args.sheet_name,
+            consolidate_sheets=True if args.all_sheets else None,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    write_workbook(
+        result["clean_data"],
+        result["quarantine"],
+        result["changelog"],
+        output_path,
+        headers=result["headers"],
+    )
 
     W = 60
     print()
@@ -1715,27 +1756,24 @@ def main():
     print("═" * W)
     print(f"  Input file   : {input_path.name}")
     print(f"  Output file  : {output_path.name}")
-    print(f"  Mode         : {mode}")
-    print(f"  Delimiter    : {repr(delimiter)}")
+    print(f"  Mode         : {result['mode']}")
+    print(f"  Delimiter    : {repr(result['delimiter'])}")
     print("─" * W)
-    print(f"  Rows in      : {total_in}  (incl. column header row)")
-    print(f"  Clean Data   : {len(clean_data)} rows")
-    print(f"    · was_modified = TRUE  : {sum(1 for r in clean_data if r.was_modified)}")
-    print(f"    · needs_review = TRUE  : {sum(1 for r in clean_data if r.needs_review)}")
-    print(f"  Quarantine   : {len(quarantine)} rows")
-    for reason, rows in sorted(
-        {r.reason: sum(1 for q in quarantine if q.reason == r.reason)
-         for r in quarantine}.items()
-    ):
+    print(f"  Rows in      : {result['total_in']}  (incl. column header row)")
+    print(f"  Clean Data   : {len(result['clean_data'])} rows")
+    print(f"    · was_modified = TRUE  : {sum(1 for r in result['clean_data'] if r.was_modified)}")
+    print(f"    · needs_review = TRUE  : {sum(1 for r in result['clean_data'] if r.needs_review)}")
+    print(f"  Quarantine   : {len(result['quarantine'])} rows")
+    for reason, rows in result["quarantine_reason_counts"].items():
         print(f"    · {reason:<40} {rows}")
-    print(f"  Changes logged: {len(changelog)}")
-    print(f"    · Fixed       : {action_counts.get('Fixed', 0)}")
-    print(f"    · Quarantined : {action_counts.get('Quarantined', 0)}")
-    print(f"    · Removed     : {action_counts.get('Removed', 0)}")
-    print(f"    · Flagged     : {action_counts.get('Flagged', 0)}")
+    print(f"  Changes logged: {len(result['changelog'])}")
+    print(f"    · Fixed       : {result['action_counts'].get('Fixed', 0)}")
+    print(f"    · Quarantined : {result['action_counts'].get('Quarantined', 0)}")
+    print(f"    · Removed     : {result['action_counts'].get('Removed', 0)}")
+    print(f"    · Flagged     : {result['action_counts'].get('Flagged', 0)}")
     print("─" * W)
     print("  ASSUMPTIONS MADE:")
-    for a in assumptions:
+    for a in result["assumptions"]:
         print(f"    · {a}")
     print("═" * W)
     print()

@@ -15,13 +15,15 @@ first because the later items depend on them or matter less to user trust.
     - CLI supports `--all-sheets` or `--consolidate-sheets`
     - failure messages stay clean and actionable
 
-- [ ] `.xlsm` empty-after-header-detection failure
+- [x] `.xlsm` empty-after-header-detection failure
   - Current behavior: some workbook inputs load, then `heal.py` exits with
     `ERROR: File is empty after metadata/header detection.`
   - Evidence: public `issue221.xlsm`
   - Required outcome:
     - workbook data survives preprocessing
     - metadata/header detection does not strip real tabular content
+  - Status:
+    - `issue221.xlsm` now heals successfully after workbook/header detection hardening
 
 - [ ] Clean corrupt-workbook failure contract
   - Current behavior: corrupt `.xls` inputs leak parser noise before the final error.

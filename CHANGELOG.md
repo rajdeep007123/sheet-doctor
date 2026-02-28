@@ -11,7 +11,7 @@ All notable changes to sheet-doctor are documented here.
   - Explains what `csv-doctor` does, how each script works, accepted formats, output structure, manual commands, and the `extreme_mess.csv` example flow
 - **`csv-doctor` / `reporter.py`** — human-readable health report generator:
   - Combines `diagnose.py` and `column_detector.py` into a plain-text report and a structured JSON artifact
-  - Includes file overview, health score, grouped issues, per-column breakdown, recommended actions, and assumptions
+  - Includes file overview, grouped issues, per-column breakdown, recommended actions, assumptions, and three scoring views: raw, recoverability, and post-heal
   - Emits a dedicated PII warning when likely names, emails, phone numbers, or national-ID-like values are detected
 - **`csv-doctor` / `column_detector.py`** — standalone semantic profiler for messy tabular data:
   - Infers likely column meaning even when headers are weak or wrong (`date`, `currency/amount`, `plain number`, `percentage`, `email`, `phone`, `URL`, `country`, `currency code`, `name`, `categorical`, `free text`, `boolean`, `ID/code`, `unknown`)
@@ -37,6 +37,11 @@ All notable changes to sheet-doctor are documented here.
   - Semantic mode normalizes alternate headers and now covers workbook sheet selection / consolidation entry points
 
 ### Changed
+- **`csv-doctor` / `reporter.py`** — Phase 3 scoring and action planning:
+  - Added `raw_health_score` for the original file, `recoverability_score` based on the actual clean/quarantine split, and `post_heal_score` for the cleaned output only
+  - Kept `health_score` as a backward-compatible alias of the raw score for older consumers
+  - Recommended actions now use actual healing projection data (`clean_rows`, `quarantine_rows`, `needs_review_rows`, real fix counts) instead of relying only on diagnostic heuristics
+- **`csv-doctor` / `heal.py`** — added reusable in-memory execution via `execute_healing(...)` so reporting can use the real healing outcome without writing a workbook first
 - **`csv-doctor` / `heal.py`** — Phase 1 + 2 production hardening:
   - Shared row-accounting and normalized issue reporting now keep `diagnose.py` and `reporter.py` aligned on raw vs parsed row counts
   - Semantic healing mode now handles non-exact headers by inferring likely `name`, `date`, `amount`, `currency`, `status`, `department`, `category`, and `notes` columns

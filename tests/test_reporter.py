@@ -63,6 +63,33 @@ class ReporterTests(unittest.TestCase):
         self.assertEqual(row_accounting["malformed_rows_total"], 8)
         self.assertTrue(result["warnings"])
 
+    def test_reporter_exposes_raw_recoverability_and_post_heal_scores(self):
+        report = self.reporter.build_report(EXTREME_MESS_PATH)
+
+        raw_score = report["raw_health_score"]["score"]
+        recoverability_score = report["recoverability_score"]["score"]
+        post_heal_score = report["post_heal_score"]["score"]
+
+        self.assertEqual(raw_score, 32)
+        self.assertGreater(recoverability_score, raw_score)
+        self.assertGreater(post_heal_score, recoverability_score)
+        self.assertIn("Raw Health Score: 32/100", report["text_report"])
+        self.assertIn("Recoverability Score:", report["text_report"])
+        self.assertIn("Post-Heal Score:", report["text_report"])
+
+    def test_recommended_actions_use_actual_healing_projection(self):
+        report = self.reporter.build_report(EXTREME_MESS_PATH)
+        actions = report["recommended_actions"]
+        projection = report["healing_projection"]
+
+        self.assertTrue(actions)
+        self.assertIn("Run sheet-doctor healing now", actions[0])
+        self.assertTrue(any("Quarantine tab" in action for action in actions))
+        self.assertTrue(any("needs_review=TRUE" in action for action in actions))
+        self.assertEqual(projection["clean_rows"], 40)
+        self.assertEqual(projection["quarantine_rows"], 5)
+        self.assertEqual(projection["needs_review_rows"], 8)
+
 
 if __name__ == "__main__":
     unittest.main()

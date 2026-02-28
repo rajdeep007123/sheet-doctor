@@ -29,7 +29,7 @@ More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 - ✅ `loader.py` — universal file format handler
 - ✅ `diagnose.py` — file health check
 - ✅ `column_detector.py` — smart column analysis
-- ✅ `reporter.py` — plain-text and JSON health report generator
+- ✅ `reporter.py` — plain-text and JSON health report generator with recoverability scoring
 - ✅ `heal.py` — fixer with Clean Data / Quarantine / Change Log output
 - ✅ `skills/csv-doctor/SKILL.md` — Claude invocation guide for the full CSV workflow
 - ✅ `skills/csv-doctor/README.md` — standalone developer documentation for the CSV skill
@@ -45,7 +45,7 @@ More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 3. `column_detector.py`
    Infers what each column likely contains and computes per-column quality signals.
 4. `reporter.py`
-   Turns the `diagnose.py` + `column_detector.py` JSON output into a non-technical health report and a UI-friendly JSON artifact.
+   Turns the `diagnose.py` + `column_detector.py` JSON output into a non-technical health report and a UI-friendly JSON artifact, including raw, recoverability, and post-heal scoring.
 5. `heal.py`
    Uses the same loader foundation to repair what can be repaired, quarantine what should not be trusted, and log every meaningful change.
 
@@ -56,6 +56,12 @@ In practice:
 - `heal.py` produces the usable workbook output
 - `SKILL.md` tells Claude when to invoke the workflow
 - `skills/csv-doctor/README.md` documents the subsystem for developers
+
+Report scores:
+- `raw_health_score` measures how broken the original file is before repair
+- `recoverability_score` measures how much usable data should remain after healing, based on the actual clean/quarantine split
+- `post_heal_score` measures the expected quality of the cleaned output only
+- `health_score` remains in the JSON as a backward-compatible alias of `raw_health_score`
 
 Healing modes:
 - `schema-specific` when the canonical 8-column finance/export shape is detected
@@ -225,6 +231,13 @@ python skills/csv-doctor/scripts/heal.py /path/to/workbook.xlsx /tmp/healed.xlsx
 python skills/csv-doctor/scripts/heal.py /path/to/workbook.xlsx /tmp/healed.xlsx --all-sheets
 ```
 
+Current `extreme_mess.csv` score progression:
+- Raw Health Score: `32/100`
+- Recoverability Score: `84/100`
+- Post-Heal Score: `95/100`
+
+This means the source file is badly damaged, but most of it is recoverable automatically and the cleaned output is close to production-usable.
+
 Recent `csv-doctor/heal.py` edge-case coverage:
 - Quarantines text formulas like `=SUM(...)` as `Excel formula found, not data`
 - Detects and removes leading metadata/header rows before the real header, logging them as `File Metadata` in the Change Log
@@ -234,6 +247,7 @@ Recent `csv-doctor/heal.py` edge-case coverage:
 - Splits combined values like `$1,200 USD` into `Amount` + `Currency`
 - Uses semantic role inference to normalize non-exact headers such as `Emp Name`, `Txn Date`, `Cost`, `Curr`, and `Approval State`
 - Accepts `--sheet` / `--all-sheets` for workbook inputs so multi-sheet files do not fail at the CLI boundary
+- Reporter distinguishes between raw file damage, recoverability, and post-heal quality
 - Reporter adds a PII warning when likely names, emails, phones, or national-ID-like values are detected
 
 **`messy_sample.xlsx`** — broken Excel workbook with hidden sheets, merged cells, formula errors, and mixed column types.
