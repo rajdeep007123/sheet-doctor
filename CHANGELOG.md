@@ -8,6 +8,17 @@ All notable changes to sheet-doctor are documented here.
 
 ---
 
+## [0.4.1] — 2026-02-28
+
+### Changed
+- **`CONTRIBUTING.md`** — updated to reflect `loader.py` as the shared file-reading layer:
+  - Replaced "Healer scripts" wanted item (excel-doctor `heal.py` now exists) with "New format support in `loader.py`" and "Better heuristics in existing scripts"
+  - Added code snippet showing how new skills should import `loader.py` instead of writing their own file-reading logic
+  - Added `loader.py` conventions section: result dict contract, error vs warning handling, encoding fallback chain, optional dependency error messages, stderr-only prompts, `isatty()` check before calling `input()`
+  - Removed `excel-doctor heal.py` from skill ideas table (done)
+
+---
+
 ## [0.4.0] — 2026-02-28
 
 ### Added

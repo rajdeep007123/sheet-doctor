@@ -7,9 +7,9 @@ Thanks for being here. This project is built by one person returning to code aft
 ## What we need most
 
 - **New skills** — `merge-doctor`, `type-doctor`, `encoding-fixer` (see ideas below)
-- **Healer scripts** — `excel-doctor` has `diagnose.py` but no `heal.py` yet
-- **Better heuristics** in existing scripts — edge cases, encoding detection improvements
-- **More messy sample files** — real-world broken CSVs and .xlsx files (anonymized, please)
+- **New format support in loader.py** — edge cases, better heuristics for delimiter sniffing or encoding detection
+- **Better heuristics in existing scripts** — date parsing, amount normalisation, near-duplicate detection
+- **More messy sample files** — real-world broken CSVs, .xlsx, .json files (anonymized, please)
 - **Documentation fixes** — if something confused you, it'll confuse others
 
 ---
@@ -41,6 +41,20 @@ skills/
         ├── diagnose.py   ← analysis, outputs JSON to stdout
         └── heal.py       ← fixes issues, outputs .xlsx workbook (optional but encouraged)
 ```
+
+If your skill reads tabular files, **import `loader.py` from `csv-doctor`** instead of writing your own file-reading logic:
+
+```python
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "csv-doctor" / "scripts"))
+from loader import load_file
+
+result = load_file("path/to/file.csv")
+df     = result["dataframe"]
+```
+
+This gives you encoding detection, delimiter sniffing, and multi-format support for free.
 
 **4. Test against the sample data**
 
@@ -75,6 +89,19 @@ Healer scripts are optional but follow this pattern:
 
 ---
 
+## loader.py conventions
+
+`skills/csv-doctor/scripts/loader.py` is the shared file-reading layer. If you're contributing to it:
+
+- `load_file()` must always return the standard result dict — all keys present, missing values as `None` not omitted
+- Format loaders (`_load_text`, `_load_excel`, etc.) raise exceptions for unrecoverable errors; warnings go in `result["warnings"]`
+- Never crash on encoding — the fallback chain (UTF-8 → detected → latin-1 → cp1252 replace) must always produce a string
+- Optional dependencies (`xlrd`, `odfpy`) must fail with a clear `ImportError` message pointing to the install command
+- Interactive prompts go to `stderr`; only data goes to `stdout`
+- Check `sys.stdin.isatty()` before calling `input()` — scripts are often run as subprocesses by Claude Code
+
+---
+
 ## Ground rules
 
 - Keep output **human-readable first**. These reports are read by people, not machines.
@@ -89,7 +116,6 @@ Healer scripts are optional but follow this pattern:
 
 | Skill | What it would do |
 |---|---|
-| `excel-doctor heal.py` | Fix what excel-doctor diagnoses — output a clean .xlsx |
 | `merge-doctor` | Detect and unmerge merged cells, fill down values, rebuild a flat table |
 | `type-doctor` | Detect and fix mixed-type columns — coerce strings to numbers/dates where safe |
 | `encoding-fixer` | Re-encode a file to clean UTF-8, repairing Latin-1/Windows-1252 corruption |
