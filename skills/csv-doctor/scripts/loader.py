@@ -19,6 +19,7 @@ Result dict keys:
     sheet_names       — all available sheet names for spreadsheets; None otherwise
     original_rows     — row count including header row
     original_columns  — column count
+    row_accounting    — raw-vs-parsed row counts and malformed-row details
     warnings          — list of warning strings
 """
 
@@ -204,6 +205,23 @@ def _validate_txt_table(text: str, delimiter: str) -> None:
         )
 
 
+def _build_row_accounting(
+    *,
+    raw_rows_total: int,
+    raw_data_rows_total: int,
+    parsed_rows_total: int,
+    malformed_rows: list[dict],
+) -> dict:
+    return {
+        "raw_rows_total": raw_rows_total,
+        "raw_data_rows_total": raw_data_rows_total,
+        "parsed_rows_total": parsed_rows_total,
+        "malformed_rows_total": len(malformed_rows),
+        "malformed_rows": malformed_rows[:50],
+        "dropped_rows_total": max(0, raw_data_rows_total - parsed_rows_total),
+    }
+
+
 def _sheet_selection_message(
     all_sheets: list[str],
     same_columns: bool,
@@ -291,6 +309,17 @@ def _load_text(path: Path, suffix: str) -> dict:
     if suffix == ".txt":
         _validate_txt_table(text, delimiter)
 
+    try:
+        raw_rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
+    except Exception as exc:
+        raise ValueError(f"Could not parse {suffix} file into raw rows: {exc}") from exc
+
+    expected_columns = len(raw_rows[0]) if raw_rows else 0
+    malformed_rows = []
+    for idx, row in enumerate(raw_rows[1:], start=2):
+        if len(row) != expected_columns:
+            malformed_rows.append({"row": idx, "count": len(row)})
+
     sep = r"\|" if delimiter == "|" else delimiter
     try:
         df = pd.read_csv(
@@ -303,6 +332,18 @@ def _load_text(path: Path, suffix: str) -> dict:
     except Exception as exc:
         raise ValueError(f"Could not parse {suffix} file: {exc}") from exc
 
+    row_accounting = _build_row_accounting(
+        raw_rows_total=len(raw_rows),
+        raw_data_rows_total=max(0, len(raw_rows) - 1),
+        parsed_rows_total=len(df),
+        malformed_rows=malformed_rows,
+    )
+    warnings: list[str] = []
+    if row_accounting["dropped_rows_total"] > 0:
+        warnings.append(
+            f"DataFrame parser skipped {row_accounting['dropped_rows_total']} data row(s); raw row counts are retained for reporting."
+        )
+
     return {
         "dataframe":        df,
         "detected_format":  suffix.lstrip("."),
@@ -312,9 +353,10 @@ def _load_text(path: Path, suffix: str) -> dict:
         "raw_text":         text,
         "sheet_name":       None,
         "sheet_names":      None,
-        "original_rows":    len(df) + 1,
-        "original_columns": len(df.columns),
-        "warnings":         [],
+        "original_rows":    len(raw_rows),
+        "original_columns": expected_columns or len(df.columns),
+        "row_accounting":   row_accounting,
+        "warnings":         warnings,
     }
 
 
@@ -445,6 +487,12 @@ def _load_excel(
         "sheet_names":      all_sheets,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
+        "row_accounting":   _build_row_accounting(
+            raw_rows_total=len(df) + 1,
+            raw_data_rows_total=len(df),
+            parsed_rows_total=len(df),
+            malformed_rows=[],
+        ),
         "warnings":         warnings,
     }
 
@@ -541,6 +589,12 @@ def _load_ods(
         "sheet_names":      all_sheets,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
+        "row_accounting":   _build_row_accounting(
+            raw_rows_total=len(df) + 1,
+            raw_data_rows_total=len(df),
+            parsed_rows_total=len(df),
+            malformed_rows=[],
+        ),
         "warnings":         warnings,
     }
 
@@ -600,6 +654,12 @@ def _load_json(path: Path) -> dict:
         "sheet_names":      None,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
+        "row_accounting":   _build_row_accounting(
+            raw_rows_total=len(df) + 1,
+            raw_data_rows_total=len(df),
+            parsed_rows_total=len(df),
+            malformed_rows=[],
+        ),
         "warnings":         warnings,
     }
 
@@ -649,6 +709,12 @@ def _load_jsonl(path: Path) -> dict:
         "sheet_names":      None,
         "original_rows":    len(df) + 1,
         "original_columns": len(df.columns),
+        "row_accounting":   _build_row_accounting(
+            raw_rows_total=len(df) + 1,
+            raw_data_rows_total=len(df),
+            parsed_rows_total=len(df),
+            malformed_rows=[],
+        ),
         "warnings":         warnings,
     }
 

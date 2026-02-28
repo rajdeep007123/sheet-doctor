@@ -19,9 +19,8 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
-from column_detector import build_report as build_column_report
 from diagnose import build_report as build_diagnose_report
-from heal import ASSUMPTIONS, GENERIC_ASSUMPTIONS, is_schema_specific_header
+from heal import ASSUMPTIONS, GENERIC_ASSUMPTIONS, SEMANTIC_ASSUMPTIONS
 
 
 SEVERITY_HEADINGS = {
@@ -37,29 +36,6 @@ SCORE_LABELS = [
     (30, "Poor — major surgery required"),
     (0, "Critical — severe data quality issues"),
 ]
-
-
-def rows_in_column(column_stats: dict[str, Any]) -> int:
-    return max(0, column_stats.get("unique_count", 0) + max(
-        0,
-        int(round(column_stats.get("null_count", 0) / max(column_stats.get("null_percentage", 0.01), 0.01) * 100))
-        if column_stats.get("null_percentage", 0) else 0,
-    ))
-
-
-def non_null_rows(column_stats: dict[str, Any], total_rows: int) -> int:
-    return max(0, total_rows - int(column_stats.get("null_count", 0)))
-
-
-def parse_row_numbers(messages: list[str]) -> list[int]:
-    rows = []
-    for message in messages:
-        if message.startswith("row "):
-            try:
-                rows.append(int(message.split(":", 1)[0].split()[1]))
-            except (IndexError, ValueError):
-                continue
-    return rows
 
 
 def calc_health_score(diagnose_report: dict[str, Any], column_report: dict[str, Any]) -> dict[str, Any]:
@@ -134,224 +110,6 @@ def calc_health_score(diagnose_report: dict[str, Any], column_report: dict[str, 
     }
 
 
-def make_issue(
-    severity: str,
-    plain_english: str,
-    columns: list[str],
-    rows_affected: int,
-    auto_fixable: bool,
-) -> dict[str, Any]:
-    return {
-        "severity": severity,
-        "plain_english": plain_english,
-        "columns": columns,
-        "rows_affected": rows_affected,
-        "auto_fixable": auto_fixable,
-    }
-
-
-def collect_issues(
-    diagnose_report: dict[str, Any],
-    column_report: dict[str, Any],
-    schema_specific: bool,
-) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    total_rows = column_report.get("summary", {}).get("total_rows", 0)
-    columns = column_report.get("columns", {})
-
-    encoding = diagnose_report.get("encoding", {})
-    suspicious_rows = sorted(set(parse_row_numbers(encoding.get("suspicious_chars", []))))
-    if not encoding.get("is_utf8") and encoding.get("detected", "unknown") != "unknown":
-        issues.append(
-            make_issue(
-                "warning",
-                f"The file uses {encoding.get('detected')} instead of UTF-8, so some systems may misread special characters.",
-                ["file-wide"],
-                total_rows,
-                True,
-            )
-        )
-    if suspicious_rows:
-        issues.append(
-            make_issue(
-                "warning",
-                "Some characters look corrupted, which may change names, notes, or other text values.",
-                ["file-wide"],
-                len(suspicious_rows),
-                True,
-            )
-        )
-
-    misaligned = diagnose_report.get("column_count", {}).get("misaligned_rows", [])
-    if misaligned:
-        issues.append(
-            make_issue(
-                "critical",
-                "Some rows have too many or too few columns, which will break imports and shift values into the wrong fields.",
-                ["row structure"],
-                len(misaligned),
-                True,
-            )
-        )
-
-    duplicate_headers = diagnose_report.get("duplicate_headers", {})
-    if duplicate_headers.get("duplicate_columns"):
-        issues.append(
-            make_issue(
-                "critical",
-                "Some column names are duplicated, so downstream tools may overwrite or confuse fields.",
-                duplicate_headers["duplicate_columns"],
-                1,
-                True,
-            )
-        )
-    if duplicate_headers.get("repeated_header_rows"):
-        issues.append(
-            make_issue(
-                "critical",
-                "The header row appears again inside the data, which will be treated as a broken data row during import.",
-                ["row structure"],
-                len(duplicate_headers["repeated_header_rows"]),
-                True,
-            )
-        )
-
-    empty_rows = diagnose_report.get("empty_rows", {})
-    if empty_rows.get("count", 0):
-        issues.append(
-            make_issue(
-                "warning",
-                "Completely blank rows are mixed into the file and can interfere with import counts and analysis.",
-                ["row structure"],
-                empty_rows["count"],
-                True,
-            )
-        )
-
-    whitespace_headers = diagnose_report.get("whitespace_headers", [])
-    if whitespace_headers:
-        issues.append(
-            make_issue(
-                "info",
-                "Some headers contain leading or trailing spaces, which can make column matching fail silently.",
-                whitespace_headers,
-                1,
-                True,
-            )
-        )
-
-    column_quality = diagnose_report.get("column_quality", {})
-    if column_quality.get("empty_columns"):
-        issues.append(
-            make_issue(
-                "warning",
-                "Some columns are completely empty and add noise without carrying any usable information.",
-                column_quality["empty_columns"],
-                total_rows,
-                False,
-            )
-        )
-    if column_quality.get("single_value_columns"):
-        issues.append(
-            make_issue(
-                "info",
-                "Some columns only contain one repeated value, which may indicate a fill-down or export problem.",
-                list(column_quality["single_value_columns"].keys()),
-                total_rows,
-                False,
-            )
-        )
-
-    for column_name, date_info in diagnose_report.get("date_formats", {}).items():
-        column_stats = columns.get(column_name, {})
-        issues.append(
-            make_issue(
-                "warning",
-                f"The {column_name} column mixes multiple date formats, so the same date may be interpreted differently by different tools.",
-                [column_name],
-                non_null_rows(column_stats, total_rows),
-                schema_specific and column_name == "Date",
-            )
-        )
-
-    for column_name, column_stats in columns.items():
-        detected_type = column_stats.get("detected_type", "unknown")
-        for suspected_issue in column_stats.get("suspected_issues", []):
-            if suspected_issue == "Mixed date formats detected":
-                continue
-            if suspected_issue == "Inconsistent capitalisation":
-                if detected_type in {"date", "plain number", "currency/amount", "percentage", "URL", "phone number", "ID/code"}:
-                    continue
-                issues.append(
-                    make_issue(
-                        "warning",
-                        f"The {column_name} column uses inconsistent capitalisation, which can split what should be one category into several versions.",
-                        [column_name],
-                        non_null_rows(column_stats, total_rows),
-                        schema_specific and column_name in {"Employee Name", "Currency", "Status"},
-                    )
-                )
-            elif suspected_issue.startswith("Trailing/leading whitespace in "):
-                issues.append(
-                    make_issue(
-                        "info",
-                        f"The {column_name} column contains extra spaces at the start or end of values.",
-                        [column_name],
-                        non_null_rows(column_stats, total_rows),
-                        True,
-                    )
-                )
-            elif suspected_issue == "Possible duplicates with slight differences":
-                issues.append(
-                    make_issue(
-                        "warning",
-                        f"The {column_name} column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.",
-                        [column_name],
-                        non_null_rows(column_stats, total_rows),
-                        False,
-                    )
-                )
-            elif suspected_issue == "Values suspiciously all the same":
-                issues.append(
-                    make_issue(
-                        "info",
-                        f"The {column_name} column is almost entirely the same value, which may mean the export lost useful variation.",
-                        [column_name],
-                        non_null_rows(column_stats, total_rows),
-                        False,
-                    )
-                )
-            elif suspected_issue == "Outliers detected (values outside 3 standard deviations)":
-                issues.append(
-                    make_issue(
-                        "warning",
-                        f"The {column_name} column contains outlier values that look unusually large or small compared with the rest of the file.",
-                        [column_name],
-                        1,
-                        False,
-                    )
-                )
-            elif suspected_issue == "Possible PII detected (emails/phones/names)":
-                issues.append(
-                    make_issue(
-                        "info",
-                        f"The {column_name} column appears to contain personally identifiable information that may need extra care before sharing.",
-                        [column_name],
-                        non_null_rows(column_stats, total_rows),
-                        False,
-                    )
-                )
-
-    return sorted(
-        issues,
-        key=lambda issue: (
-            {"critical": 0, "warning": 1, "info": 2}[issue["severity"]],
-            -issue["rows_affected"],
-            issue["columns"],
-        ),
-    )
-
-
 def build_column_breakdown(column_report: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for column_name, column_stats in column_report.get("columns", {}).items():
@@ -370,11 +128,11 @@ def build_column_breakdown(column_report: dict[str, Any]) -> list[dict[str, Any]
 def build_actions(
     diagnose_report: dict[str, Any],
     column_report: dict[str, Any],
-    schema_specific: bool,
+    healing_mode: str,
 ) -> list[str]:
     actions: list[str] = []
-    total_rows = column_report.get("summary", {}).get("total_rows", 0)
     columns = column_report.get("columns", {})
+    issues = diagnose_report.get("issues", [])
 
     misaligned_count = len(diagnose_report.get("column_count", {}).get("misaligned_rows", []))
     if misaligned_count:
@@ -390,30 +148,33 @@ def build_actions(
         )
 
     for column_name, info in diagnose_report.get("date_formats", {}).items():
-        affected_rows = non_null_rows(columns.get(column_name, {}), total_rows)
+        affected_rows = next(
+            (issue["rows_affected"] for issue in issues if issue["id"] == "date_mixed_formats" and issue["columns"] == [column_name]),
+            0,
+        )
         actions.append(
             f"Normalize mixed date formats in {column_name} ({len(info.get('formats_found', []))} formats across about {affected_rows} populated row(s)) "
-            f"({'auto-fixable' if schema_specific and column_name == 'Date' else 'manual review needed'})"
+            f"({'auto-fixable' if healing_mode == 'schema-specific' and column_name == 'Date' else 'manual review needed'})"
         )
 
     duplicate_like_columns = [
-        name
-        for name, stats in columns.items()
-        if "Possible duplicates with slight differences" in stats.get("suspected_issues", [])
+        issue["columns"][0]
+        for issue in issues
+        if issue["id"] == "semantic_near_duplicates"
     ]
     if duplicate_like_columns:
         actions.append(
-            f"Review near-duplicate values in {', '.join(duplicate_like_columns)} to decide which versions should be merged or kept"
+            f"Review near-duplicate values in {', '.join(dict.fromkeys(duplicate_like_columns))} to decide which versions should be merged or kept"
         )
 
     outlier_columns = [
-        name
-        for name, stats in columns.items()
-        if "Outliers detected (values outside 3 standard deviations)" in stats.get("suspected_issues", [])
+        issue["columns"][0]
+        for issue in issues
+        if issue["id"] == "semantic_outliers"
     ]
     if outlier_columns:
         actions.append(
-            f"Manually check outlier values in {', '.join(outlier_columns)} before trusting totals or downstream analysis"
+            f"Manually check outlier values in {', '.join(dict.fromkeys(outlier_columns))} before trusting totals or downstream analysis"
         )
 
     encoding = diagnose_report.get("encoding", {})
@@ -425,9 +186,11 @@ def build_actions(
     return actions[:6]
 
 
-def build_assumptions(columns: list[str]) -> list[str]:
-    if is_schema_specific_header(columns):
+def build_assumptions(healing_mode: str) -> list[str]:
+    if healing_mode == "schema-specific":
         return ASSUMPTIONS
+    if healing_mode == "semantic":
+        return SEMANTIC_ASSUMPTIONS
     return GENERIC_ASSUMPTIONS
 
 
@@ -454,6 +217,8 @@ def render_text_report(report_json: dict[str, Any]) -> str:
         "SECTION 1 — FILE OVERVIEW",
         f"📄 File: {overview['file']}",
         f"📊 Size: {overview['rows']} rows × {overview['columns']} columns",
+        f"🧾 Parsed cleanly: {overview['parsed_rows']} rows",
+        f"🧯 Malformed rows: {overview['malformed_rows']} | Skipped by parser: {overview['dropped_rows']}",
         f"💾 Format: {overview['format']}",
         f"🔤 Encoding: {overview['encoding']}",
         f"⏱  Scanned: {overview['scanned_at']}",
@@ -520,19 +285,19 @@ def render_text_report(report_json: dict[str, Any]) -> str:
 
 def build_report(file_path: Path) -> dict[str, Any]:
     diagnose_report = build_diagnose_report(file_path)
-    column_report = build_column_report(file_path)
+    column_report = diagnose_report.get("column_semantics", {})
     semantic_columns = list(column_report.get("columns", {}).keys())
-    schema_specific = is_schema_specific_header(semantic_columns)
+    healing_mode = diagnose_report.get("healing_mode_candidate", "generic")
 
     score = calc_health_score(diagnose_report, column_report)
-    issues = collect_issues(diagnose_report, column_report, schema_specific=schema_specific)
+    issues = diagnose_report.get("issues", [])
     issues_by_severity = {
         severity: [issue for issue in issues if issue["severity"] == severity]
         for severity in ("critical", "warning", "info")
     }
     column_breakdown = build_column_breakdown(column_report)
-    actions = build_actions(diagnose_report, column_report, schema_specific=schema_specific)
-    assumptions = build_assumptions(semantic_columns)
+    actions = build_actions(diagnose_report, column_report, healing_mode=healing_mode)
+    assumptions = build_assumptions(healing_mode)
     pii_warning = None
     if any(
         issue.get("plain_english", "").startswith("The ") and "personally identifiable information" in issue.get("plain_english", "").lower()
@@ -540,13 +305,17 @@ def build_report(file_path: Path) -> dict[str, Any]:
     ):
         pii_warning = "⚠️ This file appears to contain PII. Handle according to your data protection policy."
 
+    row_accounting = diagnose_report.get("row_accounting") or {}
     report_json = {
         "file_overview": {
             "file": file_path.name,
-            "rows": column_report.get("summary", {}).get("total_rows", 0),
-            "columns": column_report.get("summary", {}).get("total_columns", 0),
-            "format": column_report.get("detected_format", "unknown"),
-            "encoding": column_report.get("detected_encoding", "unknown"),
+            "rows": row_accounting.get("raw_data_rows_total", column_report.get("summary", {}).get("total_rows", 0)),
+            "parsed_rows": row_accounting.get("parsed_rows_total", column_report.get("summary", {}).get("total_rows", 0)),
+            "malformed_rows": row_accounting.get("malformed_rows_total", 0),
+            "dropped_rows": row_accounting.get("dropped_rows_total", 0),
+            "columns": diagnose_report.get("column_count", {}).get("expected", column_report.get("summary", {}).get("total_columns", 0)),
+            "format": diagnose_report.get("detected_format", "unknown"),
+            "encoding": diagnose_report.get("detected_encoding", "unknown"),
             "scanned_at": datetime.now().isoformat(timespec="seconds"),
         },
         "health_score": score,

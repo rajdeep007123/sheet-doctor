@@ -27,8 +27,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pandas as pd
+
 # loader.py lives in the same directory as this script.
 sys.path.insert(0, str(Path(__file__).parent))
+from column_detector import analyse_dataframe
 from loader import load_file
 
 try:
@@ -85,10 +88,35 @@ class QuarantineRow:
     reason: str
 
 
+@dataclass
+class SemanticPlan:
+    enabled: bool
+    roles_by_index: dict[int, str]
+    confidence_by_index: dict[int, float]
+    label_idx: int
+    amount_idx: int | None
+    currency_idx: int | None
+    date_idx: int | None
+    fill_down_indices: list[int]
+
+
 FORMULA_RE = re.compile(r"^\s*=")
 TOTAL_LABEL_RE = re.compile(r"\b(grand\s+total|subtotal|sub-total|total|sum)\b", re.IGNORECASE)
 NOTES_ROW_RE = re.compile(r"\b(approved|manager|note|comment|memo|generated|report|expense|expenses)\b", re.IGNORECASE)
 CURRENCY_SYMBOL_MAP = {"$": "USD", "€": "EUR", "£": "GBP", "₹": "INR", "¥": "JPY"}
+STATUS_VALUE_HINTS = set(STATUS_MAP.keys()) if "STATUS_MAP" in globals() else {
+    "approved", "approve", "rejected", "reject", "pending", "pending review",
+}
+ROLE_HEADER_HINTS = {
+    "name": ("name", "employee", "emp", "person", "contact"),
+    "date": ("date", "dated", "txn date", "transaction", "invoice date", "posted"),
+    "amount": ("amount", "cost", "price", "value", "expense", "spend", "salary", "pay", "total"),
+    "currency": ("currency", "curr", "fx", "ccy"),
+    "status": ("status", "state", "approval", "approved", "decision"),
+    "department": ("department", "dept", "division", "team", "unit", "function"),
+    "category": ("category", "type", "class", "group", "bucket", "expense type"),
+    "notes": ("notes", "note", "comment", "comments", "description", "details", "memo", "remarks"),
+}
 
 
 def _strip_nulls(value: str) -> str:
@@ -113,6 +141,24 @@ def _looks_like_header_row(row: list[str]) -> bool:
     if any(FORMULA_RE.match(cell) for cell in non_empty):
         return False
     if sum(1 for cell in non_empty if len(cell) > 50) >= 2:
+        return False
+    data_like_cells = 0
+    for cell in non_empty:
+        lower_cell = cell.strip().lower()
+        if parse_amount_like(cell) is not None:
+            data_like_cells += 1
+            continue
+        extracted_amount, _ = extract_currency_from_text(cell)
+        if extracted_amount and parse_amount_like(extracted_amount) is not None:
+            data_like_cells += 1
+            continue
+        normalized_date, changed, _ = normalise_date(cell)
+        if changed or re.match(r"^\d{4}-\d{2}-\d{2}$", normalized_date):
+            data_like_cells += 1
+            continue
+        if lower_cell in STATUS_VALUE_HINTS:
+            data_like_cells += 1
+    if data_like_cells >= 2:
         return False
     alpha_cells = sum(1 for cell in non_empty if re.search(r"[A-Za-z]", cell))
     numeric_heavy = sum(1 for cell in non_empty if re.fullmatch(r"[\d,./:-]+", cell))
@@ -557,69 +603,13 @@ def normalise_currency(value: str) -> tuple[str, bool, str]:
 
 
 def split_amount_currency_fields(row: list[str], row_num: int) -> tuple[list[str], list[Change]]:
-    row = row.copy()
-    changes: list[Change] = []
-
-    amount_val = row[COL["Amount"]]
-    currency_val = row[COL["Currency"]]
-
-    extracted_amount, extracted_currency = extract_currency_from_text(amount_val)
-    if extracted_currency and (not currency_val.strip()):
-        if extracted_amount and extracted_amount != amount_val:
-            row[COL["Amount"]] = extracted_amount
-            changes.append(
-                Change(
-                    row_num,
-                    "Amount",
-                    amount_val,
-                    extracted_amount,
-                    "Fixed",
-                    "Currency marker removed from Amount field so the numeric value can be parsed cleanly",
-                )
-            )
-        row[COL["Currency"]] = extracted_currency
-        changes.append(
-            Change(
-                row_num,
-                "Currency",
-                currency_val,
-                extracted_currency,
-                "Fixed",
-                "Currency recovered from Amount field",
-            )
-        )
-        amount_val = row[COL["Amount"]]
-        currency_val = row[COL["Currency"]]
-
-    if not row[COL["Amount"]].strip() and currency_val.strip():
-        extracted_amount, extracted_currency = extract_currency_from_text(currency_val)
-        if extracted_amount:
-            original_currency = row[COL["Currency"]]
-            row[COL["Amount"]] = extracted_amount
-            changes.append(
-                Change(
-                    row_num,
-                    "Amount",
-                    "",
-                    extracted_amount,
-                    "Fixed",
-                    "Amount recovered from Currency field",
-                )
-            )
-            if extracted_currency:
-                row[COL["Currency"]] = extracted_currency
-                changes.append(
-                    Change(
-                        row_num,
-                        "Currency",
-                        original_currency,
-                        extracted_currency,
-                        "Fixed",
-                        "Currency standardised after recovering combined amount/currency text",
-                    )
-                )
-
-    return row, changes
+    return split_amount_currency_fields_dynamic(
+        row,
+        row_num,
+        HEADERS,
+        COL["Amount"],
+        COL["Currency"],
+    )
 
 
 def normalise_name(value: str) -> tuple[str, bool, str]:
@@ -713,9 +703,9 @@ def needs_review(row: list[str], was_padded: bool) -> bool:
     return was_padded
 
 
-def forward_fill_merged_cell_gaps(clean_data: list[CleanRow], changelog: list[Change]) -> None:
-    fill_columns = [COL["Department"], COL["Category"], COL["Status"], COL["Currency"]]
-
+def forward_fill_merged_cell_gaps_generic(
+    clean_data: list[CleanRow], changelog: list[Change], headers: list[str], fill_columns: list[int]
+) -> None:
     for col_idx in fill_columns:
         last_value = ""
         gap_indexes: list[int] = []
@@ -736,7 +726,7 @@ def forward_fill_merged_cell_gaps(clean_data: list[CleanRow], changelog: list[Ch
                         changelog.append(
                             Change(
                                 gap_entry.row_num,
-                                HEADERS[col_idx],
+                                headers[col_idx],
                                 "",
                                 last_value,
                                 "Fixed",
@@ -751,6 +741,76 @@ def forward_fill_merged_cell_gaps(clean_data: list[CleanRow], changelog: list[Ch
                 gap_indexes.append(idx)
             else:
                 gap_indexes = []
+
+
+def forward_fill_merged_cell_gaps(clean_data: list[CleanRow], changelog: list[Change]) -> None:
+    forward_fill_merged_cell_gaps_generic(
+        clean_data,
+        changelog,
+        HEADERS,
+        [COL["Department"], COL["Category"], COL["Status"], COL["Currency"]],
+    )
+
+
+def flag_near_duplicates_semantic(
+    clean_data: list[CleanRow],
+    changelog: list[Change],
+    headers: list[str],
+    semantic_plan: SemanticPlan,
+) -> None:
+    if semantic_plan.date_idx is None or semantic_plan.amount_idx is None:
+        return
+
+    key_indices = [
+        idx for idx, role in semantic_plan.roles_by_index.items()
+        if role in {"name", "amount", "currency", "category", "department"}
+    ]
+    if len(key_indices) < 2:
+        return
+
+    nd_index: dict[tuple[str, ...], int] = {}
+    for idx, entry in enumerate(clean_data):
+        row = entry.row
+        key = tuple(row[i] for i in key_indices)
+        if key in nd_index:
+            prev = clean_data[nd_index[key]]
+            d1 = prev.row[semantic_plan.date_idx]
+            d2 = entry.row[semantic_plan.date_idx]
+            if (
+                d1
+                and d2
+                and re.match(r"^\d{4}-\d{2}-\d{2}$", d1)
+                and re.match(r"^\d{4}-\d{2}-\d{2}$", d2)
+            ):
+                try:
+                    delta = abs(
+                        (
+                            datetime.strptime(d2, "%Y-%m-%d")
+                            - datetime.strptime(d1, "%Y-%m-%d")
+                        ).days
+                    )
+                except ValueError:
+                    continue
+                if delta <= 2:
+                    prev.needs_review = True
+                    entry.needs_review = True
+                    label_idx = semantic_plan.label_idx
+                    for flagged, other_date, other_row_num in [
+                        (entry, d1, prev.row_num),
+                        (prev, d2, entry.row_num),
+                    ]:
+                        changelog.append(
+                            Change(
+                                flagged.row_num,
+                                "[row]",
+                                flagged.row[label_idx] if label_idx < len(flagged.row) else "",
+                                "",
+                                "Flagged",
+                                f"Near-duplicate: same semantic key columns; date {flagged.row[semantic_plan.date_idx]} differs by {delta} day(s) from row {other_row_num} ({other_date})",
+                            )
+                        )
+        else:
+            nd_index[key] = idx
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1011,6 +1071,303 @@ def clean_row_generic(
     return cleaned, changes
 
 
+def _header_text(header: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (header or "").strip().lower()).strip()
+
+
+def _header_matches_role(header: str, role: str) -> bool:
+    lowered = _header_text(header)
+    return any(token in lowered for token in ROLE_HEADER_HINTS.get(role, ()))
+
+
+def _status_like_column(column_stats: dict) -> bool:
+    values = [
+        (entry.get("value") or "").strip().lower()
+        for entry in column_stats.get("most_common_values", [])
+        if (entry.get("value") or "").strip()
+    ]
+    return bool(values) and sum(1 for value in values if value in STATUS_VALUE_HINTS) >= max(1, len(values) // 2)
+
+
+def _average_sample_length(column_stats: dict) -> float:
+    samples = [value for value in column_stats.get("sample_values", []) if value]
+    if not samples:
+        return 0.0
+    return sum(len(value) for value in samples) / len(samples)
+
+
+def _semantic_role_scores(header: str, column_stats: dict) -> dict[str, float]:
+    detected_type = column_stats.get("detected_type", "unknown")
+    scores = {
+        "name": 0.0,
+        "date": 0.0,
+        "amount": 0.0,
+        "currency": 0.0,
+        "status": 0.0,
+        "department": 0.0,
+        "category": 0.0,
+        "notes": 0.0,
+    }
+
+    if detected_type == "name":
+        scores["name"] += 0.72
+    if detected_type == "date":
+        scores["date"] += 0.72
+    if detected_type == "currency/amount":
+        scores["amount"] += 0.72
+    if detected_type == "plain number":
+        scores["amount"] += 0.42
+    if detected_type == "currency code":
+        scores["currency"] += 0.72
+    if detected_type == "boolean":
+        scores["status"] += 0.20
+    if detected_type == "categorical":
+        scores["status"] += 0.12
+        scores["department"] += 0.12
+        scores["category"] += 0.12
+    if detected_type == "free text":
+        scores["notes"] += 0.20
+
+    for role in scores:
+        if _header_matches_role(header, role):
+            if role in {"name", "currency"}:
+                scores[role] += 0.68
+            elif role in {"date", "amount"}:
+                scores[role] += 0.32
+            else:
+                scores[role] += 0.68
+
+    if _status_like_column(column_stats):
+        scores["status"] += 0.28
+    if detected_type == "free text" and _average_sample_length(column_stats) >= 20:
+        scores["notes"] += 0.12
+
+    return {role: min(score, 0.99) for role, score in scores.items()}
+
+
+def build_semantic_plan(headers: list[str], raw_rows: list[list[str]], delimiter: str) -> SemanticPlan:
+    n_cols = len(headers)
+    preview_rows: list[list[str]] = []
+
+    for idx, raw_row in enumerate(raw_rows[:1000], start=2):
+        aligned, _, _ = fix_alignment_generic(raw_row, idx, n_cols, delimiter)
+        cleaned, _ = clean_row_generic(aligned, idx, headers)
+        preview_rows.append(cleaned)
+
+    if not preview_rows:
+        return SemanticPlan(False, {}, {}, 0, None, None, None, [])
+
+    analysis = analyse_dataframe(pd.DataFrame(preview_rows, columns=headers))
+    columns = analysis.get("columns", {})
+    candidate_scores = {
+        index: _semantic_role_scores(header, columns.get(header, {}))
+        for index, header in enumerate(headers)
+    }
+
+    thresholds = {
+        "name": 0.60,
+        "date": 0.60,
+        "amount": 0.60,
+        "currency": 0.60,
+        "status": 0.72,
+        "department": 0.72,
+        "category": 0.72,
+        "notes": 0.72,
+    }
+
+    assignments: dict[int, str] = {}
+    confidences: dict[int, float] = {}
+    taken_indices: set[int] = set()
+
+    for role in ("name", "date", "amount", "currency", "status", "department", "category", "notes"):
+        best_idx = None
+        best_score = 0.0
+        for idx, scores in candidate_scores.items():
+            if idx in taken_indices:
+                continue
+            score = scores.get(role, 0.0)
+            if score > best_score:
+                best_idx = idx
+                best_score = score
+        if best_idx is not None and best_score >= thresholds[role]:
+            assignments[best_idx] = role
+            confidences[best_idx] = round(best_score, 2)
+            taken_indices.add(best_idx)
+
+    def assign_unique_detected_type(
+        role: str, detected_type: str, minimum: float = 0.58
+    ) -> None:
+        if role in assignments.values():
+            return
+        candidates = [
+            idx for idx, header in enumerate(headers)
+            if idx not in taken_indices and columns.get(header, {}).get("detected_type") == detected_type
+        ]
+        if len(candidates) == 1:
+            idx = candidates[0]
+            score = max(minimum, candidate_scores[idx].get(role, 0.0))
+            assignments[idx] = role
+            confidences[idx] = round(score, 2)
+            taken_indices.add(idx)
+
+    assign_unique_detected_type("name", "name")
+    assign_unique_detected_type("date", "date")
+    assign_unique_detected_type("amount", "currency/amount")
+    assign_unique_detected_type("currency", "currency code")
+    assign_unique_detected_type("notes", "free text", minimum=0.55)
+
+    primary_roles = set(assignments.values())
+    enabled = (
+        "amount" in primary_roles
+        and len(primary_roles.intersection({"name", "date", "currency", "status", "department", "category"})) >= 2
+    )
+    if not enabled:
+        return SemanticPlan(False, {}, {}, 0, None, None, None, [])
+
+    label_idx = next(
+        (idx for role_name in ("name", "department", "category", "notes") for idx, assigned in assignments.items() if assigned == role_name),
+        0,
+    )
+    fill_down_indices = [
+        idx for idx, role in assignments.items()
+        if role in {"department", "category", "status", "currency"}
+    ]
+
+    return SemanticPlan(
+        enabled=True,
+        roles_by_index=assignments,
+        confidence_by_index=confidences,
+        label_idx=label_idx,
+        amount_idx=next((idx for idx, role in assignments.items() if role == "amount"), None),
+        currency_idx=next((idx for idx, role in assignments.items() if role == "currency"), None),
+        date_idx=next((idx for idx, role in assignments.items() if role == "date"), None),
+        fill_down_indices=fill_down_indices,
+    )
+
+
+def split_amount_currency_fields_dynamic(
+    row: list[str], row_num: int, headers: list[str], amount_idx: int | None, currency_idx: int | None
+) -> tuple[list[str], list[Change]]:
+    if amount_idx is None or currency_idx is None:
+        return row, []
+
+    row = row.copy()
+    changes: list[Change] = []
+    amount_label = headers[amount_idx]
+    currency_label = headers[currency_idx]
+
+    amount_val = row[amount_idx]
+    currency_val = row[currency_idx]
+
+    extracted_amount, extracted_currency = extract_currency_from_text(amount_val)
+    if extracted_currency and (not currency_val.strip()):
+        if extracted_amount and extracted_amount != amount_val:
+            row[amount_idx] = extracted_amount
+            changes.append(
+                Change(
+                    row_num,
+                    amount_label,
+                    amount_val,
+                    extracted_amount,
+                    "Fixed",
+                    "Currency marker removed from amount-like field so the numeric value can be parsed cleanly",
+                )
+            )
+        row[currency_idx] = extracted_currency
+        changes.append(
+            Change(
+                row_num,
+                currency_label,
+                currency_val,
+                extracted_currency,
+                "Fixed",
+                "Currency recovered from amount-like field",
+            )
+        )
+        amount_val = row[amount_idx]
+        currency_val = row[currency_idx]
+
+    if not row[amount_idx].strip() and currency_val.strip():
+        extracted_amount, extracted_currency = extract_currency_from_text(currency_val)
+        if extracted_amount:
+            original_currency = row[currency_idx]
+            row[amount_idx] = extracted_amount
+            changes.append(
+                Change(
+                    row_num,
+                    amount_label,
+                    "",
+                    extracted_amount,
+                    "Fixed",
+                    "Amount recovered from currency-like field",
+                )
+            )
+            if extracted_currency:
+                row[currency_idx] = extracted_currency
+                changes.append(
+                    Change(
+                        row_num,
+                        currency_label,
+                        original_currency,
+                        extracted_currency,
+                        "Fixed",
+                        "Currency standardised after recovering combined amount/currency text",
+                    )
+                )
+
+    return row, changes
+
+
+def apply_semantic_normalisations(
+    row: list[str], row_num: int, headers: list[str], semantic_plan: SemanticPlan
+) -> tuple[list[str], list[Change]]:
+    row = row.copy()
+    changes: list[Change] = []
+
+    row, split_changes = split_amount_currency_fields_dynamic(
+        row, row_num, headers, semantic_plan.amount_idx, semantic_plan.currency_idx
+    )
+    changes.extend(split_changes)
+
+    for idx, role in semantic_plan.roles_by_index.items():
+        original = row[idx]
+        if role == "date":
+            new_value, changed, reason = normalise_date(original)
+        elif role == "amount":
+            new_value, changed, reason = normalise_amount(original)
+        elif role == "currency":
+            new_value, changed, reason = normalise_currency(original)
+        elif role == "name":
+            new_value, changed, reason = normalise_name(original)
+        elif role == "status":
+            new_value, changed, reason = normalise_status(original)
+        elif role in {"department", "category"}:
+            new_value = " ".join(original.split()).title() if original.strip() else ""
+            changed = new_value != original
+            reason = f"{role.title()} title-cased"
+        else:
+            continue
+
+        if changed:
+            row[idx] = new_value
+            changes.append(Change(row_num, headers[idx], original, new_value, "Fixed", reason))
+
+    return row, changes
+
+
+def needs_review_semantic(row: list[str], structure_changed: bool, semantic_plan: SemanticPlan) -> bool:
+    if structure_changed:
+        return True
+    if semantic_plan.amount_idx is not None and not row[semantic_plan.amount_idx].strip():
+        return True
+    if semantic_plan.date_idx is not None:
+        date_value = row[semantic_plan.date_idx].strip()
+        if date_value and not re.match(r"^\d{4}-\d{2}-\d{2}$", date_value):
+            return True
+    review_tokens = {"nan", "null", "n/a", "na", "not applicable", "none", "inf"}
+    return any(cell.strip().lower() in review_tokens for cell in row if cell.strip())
+
+
 def needs_review_generic(row: list[str], structure_changed: bool) -> bool:
     if structure_changed:
         return True
@@ -1020,18 +1377,22 @@ def needs_review_generic(row: list[str], structure_changed: bool) -> bool:
 
 def process_generic(
     all_rows: list[list[str]], delimiter: str, initial_changelog: list[Change] | None = None
-) -> tuple[list[CleanRow], list[QuarantineRow], list[Change], list[str]]:
+) -> tuple[list[CleanRow], list[QuarantineRow], list[Change], list[str], str]:
     headers, header_changes = normalise_headers_generic(all_rows[0])
     n_cols = len(headers)
     header_sig = tuple(h.strip().lower() for h in headers)
+    semantic_plan = build_semantic_plan(headers, all_rows[1:], delimiter)
+    applied_mode = "semantic" if semantic_plan.enabled else "generic"
 
     clean_data: list[CleanRow] = []
     quarantine: list[QuarantineRow] = []
     changelog: list[Change] = list(initial_changelog or []) + list(header_changes)
     seen_exact: dict[tuple, int] = {}
     running_amount_total = 0.0
-    amount_idx = next((i for i, header in enumerate(headers) if "amount" in header.lower() or "total" in header.lower()), None)
-    label_idx = 0
+    amount_idx = semantic_plan.amount_idx
+    if amount_idx is None:
+        amount_idx = next((i for i, header in enumerate(headers) if "amount" in header.lower() or "total" in header.lower()), None)
+    label_idx = semantic_plan.label_idx if semantic_plan.enabled else 0
 
     for i, raw_row in enumerate(all_rows[1:], start=2):
         cls = classify_raw_row_generic(raw_row, header_sig, n_cols)
@@ -1063,7 +1424,11 @@ def process_generic(
 
         cleaned, cell_changes = clean_row_generic(aligned, i, headers)
         changelog.extend(cell_changes)
-        was_modified = bool(align_change or cell_changes)
+        semantic_changes: list[Change] = []
+        if semantic_plan.enabled:
+            cleaned, semantic_changes = apply_semantic_normalisations(cleaned, i, headers, semantic_plan)
+            changelog.extend(semantic_changes)
+        was_modified = bool(align_change or cell_changes or semantic_changes)
 
         label_text = cleaned[label_idx] if label_idx < len(cleaned) else ""
         amount_text = cleaned[amount_idx] if amount_idx is not None and amount_idx < len(cleaned) else ""
@@ -1089,7 +1454,11 @@ def process_generic(
                 row=cleaned,
                 row_num=i,
                 was_modified=was_modified,
-                needs_review=needs_review_generic(cleaned, structure_changed),
+                needs_review=(
+                    needs_review_semantic(cleaned, structure_changed, semantic_plan)
+                    if semantic_plan.enabled
+                    else needs_review_generic(cleaned, structure_changed)
+                ),
             )
         )
         if amount_idx is not None:
@@ -1097,7 +1466,11 @@ def process_generic(
             if parsed_amount is not None:
                 running_amount_total += parsed_amount
 
-    return clean_data, quarantine, changelog, headers
+    if semantic_plan.enabled and semantic_plan.fill_down_indices:
+        forward_fill_merged_cell_gaps_generic(clean_data, changelog, headers, semantic_plan.fill_down_indices)
+        flag_near_duplicates_semantic(clean_data, changelog, headers, semantic_plan)
+
+    return clean_data, quarantine, changelog, headers, applied_mode
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1240,6 +1613,14 @@ GENERIC_ASSUMPTIONS = [
     "Exact duplicate rows are removed (first occurrence kept)",
 ]
 
+SEMANTIC_ASSUMPTIONS = GENERIC_ASSUMPTIONS + [
+    "When headers are non-standard, likely semantic roles are inferred from the column values and header hints",
+    "Date-like columns are normalised to YYYY-MM-DD when confidence is high enough",
+    "Amount-like and currency-like columns are normalised even when their headers are not exact schema matches",
+    "Status-like, department-like, and category-like columns are title-cased or canonicalised when their semantics are clear enough",
+    "Near-duplicate detection uses inferred semantic key columns instead of fixed schema names",
+]
+
 
 def _normalise_header_for_match(value: str) -> str:
     return " ".join(value.strip().lower().split())
@@ -1280,9 +1661,8 @@ def main():
         headers = HEADERS
         assumptions = ASSUMPTIONS
     else:
-        mode = "generic"
-        clean_data, quarantine, changelog, headers = process_generic(all_rows, delimiter, initial_changelog=metadata_changes)
-        assumptions = GENERIC_ASSUMPTIONS
+        clean_data, quarantine, changelog, headers, mode = process_generic(all_rows, delimiter, initial_changelog=metadata_changes)
+        assumptions = SEMANTIC_ASSUMPTIONS if mode == "semantic" else GENERIC_ASSUMPTIONS
 
     write_workbook(clean_data, quarantine, changelog, output_path, headers=headers)
 

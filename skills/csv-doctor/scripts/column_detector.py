@@ -625,6 +625,7 @@ def build_report(file_path: Path) -> dict[str, Any]:
         "delimiter": loaded["delimiter"],
         "original_rows": loaded["original_rows"],
         "original_columns": loaded["original_columns"],
+        "row_accounting": loaded.get("row_accounting"),
         "warnings": loaded["warnings"],
         **analysis,
     }

@@ -26,6 +26,7 @@ from collections import Counter
 sys.path.insert(0, str(Path(__file__).parent))
 from loader import load_file
 from column_detector import analyse_dataframe
+from issue_taxonomy import build_issue, infer_healing_mode
 
 
 def check_column_alignment(raw_rows: list[list[str]]) -> dict:
@@ -198,6 +199,182 @@ def build_summary(report: dict) -> dict:
     return {"verdict": verdict, "issue_count": issues}
 
 
+def non_null_rows(column_stats: dict, total_rows: int) -> int:
+    return max(0, total_rows - int(column_stats.get("null_count", 0)))
+
+
+def build_normalized_issues(report: dict, healing_mode: str) -> list[dict]:
+    issues: list[dict] = []
+    row_accounting = report.get("row_accounting", {})
+    total_rows = row_accounting.get("raw_data_rows_total", report.get("total_rows", 0) - 1)
+    columns = report.get("column_semantics", {}).get("columns", {})
+
+    encoding = report.get("encoding", {})
+    if not encoding.get("is_utf8") and encoding.get("detected", "unknown") != "unknown":
+        issues.append(
+            build_issue(
+                issue_id="encoding_non_utf8",
+                plain_english=f"The file uses {encoding.get('detected')} instead of UTF-8, so some systems may misread special characters.",
+                columns=["file-wide"],
+                rows_affected=total_rows,
+                healing_mode=healing_mode,
+            )
+        )
+    if encoding.get("suspicious_chars"):
+        issues.append(
+            build_issue(
+                issue_id="encoding_suspicious_chars",
+                plain_english="Some characters look corrupted, which may change names, notes, or other text values.",
+                columns=["file-wide"],
+                rows_affected=len(encoding.get("suspicious_chars", [])),
+                healing_mode=healing_mode,
+            )
+        )
+
+    misaligned_rows = report.get("column_count", {}).get("misaligned_rows", [])
+    if misaligned_rows:
+        issues.append(
+            build_issue(
+                issue_id="structural_misaligned_rows",
+                plain_english="Some rows have too many or too few columns, which will break imports and shift values into the wrong fields.",
+                columns=["row structure"],
+                rows_affected=len(misaligned_rows),
+                healing_mode=healing_mode,
+                details={"rows": misaligned_rows},
+            )
+        )
+
+    repeated_headers = report.get("duplicate_headers", {}).get("repeated_header_rows", [])
+    if repeated_headers:
+        issues.append(
+            build_issue(
+                issue_id="structural_repeated_header_rows",
+                plain_english="The header row appears again inside the data, which will be treated as a broken data row during import.",
+                columns=["row structure"],
+                rows_affected=len(repeated_headers),
+                healing_mode=healing_mode,
+                details={"rows": repeated_headers},
+            )
+        )
+
+    empty_rows = report.get("empty_rows", {})
+    if empty_rows.get("count", 0):
+        issues.append(
+            build_issue(
+                issue_id="structural_empty_rows",
+                plain_english="Completely blank rows are mixed into the file and can interfere with import counts and analysis.",
+                columns=["row structure"],
+                rows_affected=empty_rows["count"],
+                healing_mode=healing_mode,
+                details={"rows": empty_rows.get("rows", [])},
+            )
+        )
+
+    whitespace_headers = report.get("whitespace_headers", [])
+    if whitespace_headers:
+        issues.append(
+            build_issue(
+                issue_id="header_whitespace",
+                plain_english="Some headers contain leading or trailing spaces, which can make column matching fail silently.",
+                columns=whitespace_headers,
+                rows_affected=1,
+                healing_mode=healing_mode,
+            )
+        )
+
+    column_quality = report.get("column_quality", {})
+    if column_quality.get("empty_columns"):
+        issues.append(
+            build_issue(
+                issue_id="quality_empty_columns",
+                plain_english="Some columns are completely empty and add noise without carrying any usable information.",
+                columns=column_quality["empty_columns"],
+                rows_affected=total_rows,
+                healing_mode=healing_mode,
+            )
+        )
+    if column_quality.get("single_value_columns"):
+        issues.append(
+            build_issue(
+                issue_id="quality_single_value_columns",
+                plain_english="Some columns only contain one repeated value, which may indicate a fill-down or export problem.",
+                columns=list(column_quality["single_value_columns"].keys()),
+                rows_affected=total_rows,
+                healing_mode=healing_mode,
+            )
+        )
+
+    for column_name, info in report.get("date_formats", {}).items():
+        issues.append(
+            build_issue(
+                issue_id="date_mixed_formats",
+                plain_english=f"The {column_name} column mixes multiple date formats, so the same date may be interpreted differently by different tools.",
+                columns=[column_name],
+                rows_affected=non_null_rows(columns.get(column_name, {}), total_rows),
+                healing_mode=healing_mode,
+                details={"formats_found": info.get("formats_found", [])},
+            )
+        )
+
+    for column_name, column_stats in columns.items():
+        detected_type = column_stats.get("detected_type", "unknown")
+        for suspected_issue in column_stats.get("suspected_issues", []):
+            issue_id = None
+            plain_english = ""
+            if suspected_issue == "Mixed date formats detected":
+                continue
+            if suspected_issue == "Inconsistent capitalisation":
+                if detected_type in {"date", "plain number", "currency/amount", "percentage", "URL", "phone number", "ID/code"}:
+                    continue
+                issue_id = "semantic_inconsistent_capitalisation"
+                plain_english = (
+                    f"The {column_name} column uses inconsistent capitalisation, which can split what should be one category into several versions."
+                )
+            elif suspected_issue.startswith("Trailing/leading whitespace in "):
+                issue_id = "semantic_trim_whitespace"
+                plain_english = f"The {column_name} column contains extra spaces at the start or end of values."
+            elif suspected_issue == "Possible duplicates with slight differences":
+                issue_id = "semantic_near_duplicates"
+                plain_english = (
+                    f"The {column_name} column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes."
+                )
+            elif suspected_issue == "Values suspiciously all the same":
+                issue_id = "semantic_constant_values"
+                plain_english = (
+                    f"The {column_name} column is almost entirely the same value, which may mean the export lost useful variation."
+                )
+            elif suspected_issue == "Outliers detected (values outside 3 standard deviations)":
+                issue_id = "semantic_outliers"
+                plain_english = (
+                    f"The {column_name} column contains outlier values that look unusually large or small compared with the rest of the file."
+                )
+            elif suspected_issue == "Possible PII detected (emails/phones/names)":
+                issue_id = "semantic_pii"
+                plain_english = (
+                    f"The {column_name} column appears to contain personally identifiable information that may need extra care before sharing."
+                )
+
+            if issue_id:
+                issues.append(
+                    build_issue(
+                        issue_id=issue_id,
+                        plain_english=plain_english,
+                        columns=[column_name],
+                        rows_affected=non_null_rows(column_stats, total_rows),
+                        healing_mode=healing_mode,
+                    )
+                )
+
+    return sorted(
+        issues,
+        key=lambda issue: (
+            {"critical": 0, "warning": 1, "info": 2}[issue["severity"]],
+            -issue["rows_affected"],
+            issue["columns"],
+        ),
+    )
+
+
 def build_report(file_path: Path) -> dict:
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -210,12 +387,17 @@ def build_report(file_path: Path) -> dict:
     delimiter = loaded["delimiter"]
     raw_text = loaded["raw_text"]
     df = loaded["dataframe"]
+    column_semantics = analyse_dataframe(df)
+    healing_mode = infer_healing_mode(list(df.columns), column_semantics)
 
     raw_rows = list(csv.reader(io.StringIO(raw_text), delimiter=delimiter))
 
     report = {
         "file": file_path.name,
+        "detected_format": loaded["detected_format"],
+        "detected_encoding": loaded["detected_encoding"],
         "total_rows": len(raw_rows),
+        "healing_mode_candidate": healing_mode,
         "dialect": {"delimiter": delimiter},
         "encoding": encoding_info,
         "column_count": check_column_alignment(raw_rows),
@@ -224,12 +406,14 @@ def build_report(file_path: Path) -> dict:
         "duplicate_headers": check_duplicate_headers(raw_rows),
         "whitespace_headers": check_whitespace_headers(raw_rows),
         "column_quality": check_columns_quality(df),
-        "column_semantics": analyse_dataframe(df),
+        "column_semantics": column_semantics,
+        "row_accounting": loaded.get("row_accounting"),
     }
 
     if loaded["warnings"]:
         report["loader_warnings"] = loaded["warnings"]
 
+    report["issues"] = build_normalized_issues(report, healing_mode=healing_mode)
     report["summary"] = build_summary(report)
     return report
 

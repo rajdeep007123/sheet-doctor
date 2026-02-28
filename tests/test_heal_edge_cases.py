@@ -103,6 +103,46 @@ class HealEdgeCaseTests(unittest.TestCase):
         self.assertEqual(clean[2].row[self.heal.COL["Department"]], "Finance")
         self.assertTrue(any("merged-cell style export gap" in change.reason for change in changelog))
 
+    def test_semantic_mode_normalises_alternate_headers(self):
+        rows = [
+            ["Emp Name", "Division", "Txn Date", "Cost", "Curr", "Expense Type", "Approval State", "Comments"],
+            ["ada lovelace", "finance", "15/01/2023", "$1,200 USD", "", "travel", "approved", "Taxi ride"],
+            ["grace hopper", "finance", "2023-01-16T00:00:00Z", "", "EUR 99.5", "meals", "pending review", "Client lunch"],
+        ]
+
+        clean, quarantine, changelog, headers, mode = self.heal.process_generic(rows, ",")
+
+        self.assertEqual(mode, "semantic")
+        self.assertEqual(len(quarantine), 0)
+        self.assertEqual(clean[0].row[0], "Ada Lovelace")
+        self.assertEqual(clean[0].row[1], "Finance")
+        self.assertEqual(clean[0].row[2], "2023-01-15")
+        self.assertEqual(clean[0].row[3], "1200.00")
+        self.assertEqual(clean[0].row[4], "USD")
+        self.assertEqual(clean[0].row[5], "Travel")
+        self.assertEqual(clean[0].row[6], "Approved")
+        self.assertEqual(clean[1].row[3], "99.50")
+        self.assertEqual(clean[1].row[4], "EUR")
+        self.assertEqual(clean[1].row[6], "Pending")
+        self.assertTrue(any(change.column_affected == "Curr" for change in changelog))
+
+    def test_semantic_mode_forward_fills_department_like_columns(self):
+        rows = [
+            ["Emp Name", "Division", "Txn Date", "Cost", "Curr", "Expense Type", "Approval State", "Comments"],
+            ["Ada Lovelace", "Finance", "2023-01-15", "100.00", "USD", "Travel", "Approved", "Taxi"],
+            ["Grace Hopper", "", "2023-01-16", "150.00", "USD", "Travel", "Approved", "Hotel"],
+            ["Katherine Johnson", "", "2023-01-17", "175.00", "USD", "Travel", "Approved", "Meal"],
+            ["Alan Turing", "HR", "2023-01-18", "200.00", "USD", "Training", "Approved", "Workshop"],
+        ]
+
+        clean, quarantine, changelog, headers, mode = self.heal.process_generic(rows, ",")
+
+        self.assertEqual(mode, "semantic")
+        self.assertEqual(len(quarantine), 0)
+        self.assertEqual(clean[1].row[1], "Finance")
+        self.assertEqual(clean[2].row[1], "Finance")
+        self.assertTrue(any(change.column_affected == "Division" for change in changelog))
+
 
 if __name__ == "__main__":
     unittest.main()
