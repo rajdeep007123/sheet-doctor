@@ -17,12 +17,41 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 | `csv-doctor` | `loader.py` | Universal file loader — reads `.csv .tsv .txt .xlsx .xls .xlsm .ods .json .jsonl` into a pandas DataFrame with encoding detection, delimiter sniffing, and explicit multi-sheet handling |
 | `csv-doctor` | `diagnose.py` | Structural diagnostics plus column semantics: encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers, inferred column types, per-column quality stats, suspected issues |
 | `csv-doctor` | `column_detector.py` | Standalone per-column semantic inference and quality profiling for messy tabular data, even when headers are weak or wrong |
-| `csv-doctor` | `heal.py` | Schema-aware healing (generic + finance mode) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) |
+| `csv-doctor` | `heal.py` | Schema-aware healing (generic + finance mode) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) with edge-case handling for formula residue, notes rows, subtotal rows, metadata/header rows, merged-cell export gaps, and misplaced currency values |
 | `excel-doctor` | `diagnose.py` | Deep Excel diagnostics: sheet inventory, merged cells, formula errors/cache misses, mixed types, duplicate/whitespace headers, structural rows, sparse columns |
 | `excel-doctor` | `heal.py` | Safe workbook fixes: unmerge ranges, standardise/dedupe headers, clean text/date values, remove empty rows, append Change Log |
 | `web` | `app.py` | Local Streamlit UI — upload files or paste public file URLs, describe what you want, preview the table, and download a human-readable workbook |
 
 More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
+
+## csv-doctor Status
+
+- ✅ `loader.py` — universal file format handler
+- ✅ `diagnose.py` — file health check
+- ✅ `column_detector.py` — smart column analysis
+- ✅ `reporter.py` — plain-text and JSON health report generator
+- ✅ `heal.py` — fixer with Clean Data / Quarantine / Change Log output
+
+## Architecture
+
+`csv-doctor` is a pipeline, not five unrelated scripts:
+
+1. `loader.py`
+   Loads the incoming file into a pandas DataFrame, handling encoding, delimiter detection, and multi-format input.
+2. `diagnose.py`
+   Runs structural checks on the loaded file and embeds semantic analysis from `column_detector.py`.
+3. `column_detector.py`
+   Infers what each column likely contains and computes per-column quality signals.
+4. `reporter.py`
+   Turns the `diagnose.py` + `column_detector.py` JSON output into a non-technical health report and a UI-friendly JSON artifact.
+5. `heal.py`
+   Uses the same loader foundation to repair what can be repaired, quarantine what should not be trusted, and log every meaningful change.
+
+In practice:
+- `loader.py` is the shared ingestion layer
+- `diagnose.py` and `column_detector.py` explain what is wrong
+- `reporter.py` explains it in human terms
+- `heal.py` produces the usable workbook output
 
 ---
 
@@ -170,9 +199,21 @@ python skills/csv-doctor/scripts/diagnose.py sample-data/extreme_mess.csv
 # Inspect per-column semantics only
 python skills/csv-doctor/scripts/column_detector.py sample-data/extreme_mess.csv
 
+# Build a plain-English health report + JSON artifact
+python skills/csv-doctor/scripts/reporter.py sample-data/extreme_mess.csv
+
 # Fix it — outputs extreme_mess_healed.xlsx with 3 sheets
 python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv
 ```
+
+Recent `csv-doctor/heal.py` edge-case coverage:
+- Quarantines text formulas like `=SUM(...)` as `Excel formula found, not data`
+- Detects and removes leading metadata/header rows before the real header, logging them as `File Metadata` in the Change Log
+- Quarantines subtotal/total rows as `Calculated subtotal row`
+- Quarantines long single-cell prose rows as `Appears to be a notes row`
+- Repairs merged-cell style export gaps in categorical columns with logged forward-fill changes
+- Splits combined values like `$1,200 USD` into `Amount` + `Currency`
+- Reporter adds a PII warning when likely names, emails, phones, or national-ID-like values are detected
 
 **`messy_sample.xlsx`** — broken Excel workbook with hidden sheets, merged cells, formula errors, and mixed column types.
 
@@ -195,9 +236,10 @@ skills/
 ├── csv-doctor/
 │   ├── SKILL.md             ← Claude reads this to understand the skill
 │   └── scripts/
-│       ├── loader.py        ← universal file loader (used by both scripts below)
+│       ├── loader.py        ← universal file loader (used by all csv-doctor scripts)
 │       ├── diagnose.py      ← structural + semantic analysis, outputs JSON
 │       ├── column_detector.py ← per-column type/quality inference, outputs JSON
+│       ├── reporter.py      ← plain-text + JSON health report builder
 │       └── heal.py          ← fixes all issues, writes .xlsx workbook
 └── excel-doctor/
     ├── SKILL.md

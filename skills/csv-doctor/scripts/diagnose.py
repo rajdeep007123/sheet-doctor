@@ -198,6 +198,42 @@ def build_summary(report: dict) -> dict:
     return {"verdict": verdict, "issue_count": issues}
 
 
+def build_report(file_path: Path) -> dict:
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    if file_path.suffix.lower() not in (".csv", ".tsv", ".txt"):
+        raise ValueError(f"Expected a CSV/TSV/TXT file, got: {file_path.suffix}")
+
+    loaded = load_file(file_path)
+    encoding_info = loaded["encoding_info"]
+    delimiter = loaded["delimiter"]
+    raw_text = loaded["raw_text"]
+    df = loaded["dataframe"]
+
+    raw_rows = list(csv.reader(io.StringIO(raw_text), delimiter=delimiter))
+
+    report = {
+        "file": file_path.name,
+        "total_rows": len(raw_rows),
+        "dialect": {"delimiter": delimiter},
+        "encoding": encoding_info,
+        "column_count": check_column_alignment(raw_rows),
+        "date_formats": check_date_formats(df),
+        "empty_rows": check_empty_rows(raw_rows),
+        "duplicate_headers": check_duplicate_headers(raw_rows),
+        "whitespace_headers": check_whitespace_headers(raw_rows),
+        "column_quality": check_columns_quality(df),
+        "column_semantics": analyse_dataframe(df),
+    }
+
+    if loaded["warnings"]:
+        report["loader_warnings"] = loaded["warnings"]
+
+    report["summary"] = build_summary(report)
+    return report
+
+
 def main():
     if len(sys.argv) < 2:
         print(
@@ -224,44 +260,11 @@ def main():
         )
         sys.exit(1)
 
-    # ── Load the file via the universal loader ─────────────────────────────
     try:
-        loaded = load_file(file_path)
+        report = build_report(file_path)
     except Exception as e:
         print(json.dumps({"error": f"Could not read file: {e}"}), file=sys.stdout)
         sys.exit(1)
-
-    encoding_info = loaded["encoding_info"]
-    delimiter     = loaded["delimiter"]
-    raw_text      = loaded["raw_text"]
-    df            = loaded["dataframe"]
-
-    # ── Parse raw rows for structural checks ──────────────────────────────
-    try:
-        raw_rows = list(csv.reader(io.StringIO(raw_text), delimiter=delimiter))
-    except Exception as e:
-        print(json.dumps({"error": f"Could not parse file: {e}"}), file=sys.stdout)
-        sys.exit(1)
-
-    # ── Run all checks ─────────────────────────────────────────────────────
-    report = {
-        "file":              file_path.name,
-        "total_rows":        len(raw_rows),
-        "dialect":           {"delimiter": delimiter},
-        "encoding":          encoding_info,
-        "column_count":      check_column_alignment(raw_rows),
-        "date_formats":      check_date_formats(df),
-        "empty_rows":        check_empty_rows(raw_rows),
-        "duplicate_headers": check_duplicate_headers(raw_rows),
-        "whitespace_headers": check_whitespace_headers(raw_rows),
-        "column_quality":    check_columns_quality(df),
-        "column_semantics":  analyse_dataframe(df),
-    }
-
-    if loaded["warnings"]:
-        report["loader_warnings"] = loaded["warnings"]
-
-    report["summary"] = build_summary(report)
 
     print(json.dumps(report, indent=2, ensure_ascii=False))
     sys.exit(0)

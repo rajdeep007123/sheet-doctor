@@ -85,6 +85,155 @@ class QuarantineRow:
     reason: str
 
 
+FORMULA_RE = re.compile(r"^\s*=")
+TOTAL_LABEL_RE = re.compile(r"\b(grand\s+total|subtotal|sub-total|total|sum)\b", re.IGNORECASE)
+NOTES_ROW_RE = re.compile(r"\b(approved|manager|note|comment|memo|generated|report|expense|expenses)\b", re.IGNORECASE)
+CURRENCY_SYMBOL_MAP = {"$": "USD", "€": "EUR", "£": "GBP", "₹": "INR", "¥": "JPY"}
+
+
+def _strip_nulls(value: str) -> str:
+    return value.replace("\x00", "")
+
+
+def _non_empty_cells(row: list[str]) -> list[str]:
+    return [cell.strip() for cell in row if _strip_nulls(cell).strip()]
+
+
+def _joined_row_text(row: list[str]) -> str:
+    return " | ".join(cell.strip() for cell in row if _strip_nulls(cell).strip())
+
+
+def _looks_like_header_row(row: list[str]) -> bool:
+    if is_schema_specific_header(row):
+        return True
+
+    non_empty = [cell.strip() for cell in row if _strip_nulls(cell).strip()]
+    if len(non_empty) < 2:
+        return False
+    if any(FORMULA_RE.match(cell) for cell in non_empty):
+        return False
+    if sum(1 for cell in non_empty if len(cell) > 50) >= 2:
+        return False
+    alpha_cells = sum(1 for cell in non_empty if re.search(r"[A-Za-z]", cell))
+    numeric_heavy = sum(1 for cell in non_empty if re.fullmatch(r"[\d,./:-]+", cell))
+    return alpha_cells >= max(2, len(non_empty) - 1) and numeric_heavy <= 1
+
+
+def detect_header_row_index(all_rows: list[list[str]]) -> int:
+    search_rows = all_rows[:10]
+    exact_matches = [idx for idx, row in enumerate(search_rows) if is_schema_specific_header(row)]
+    if exact_matches:
+        return exact_matches[-1]
+
+    generic_candidates = [idx for idx, row in enumerate(search_rows) if _looks_like_header_row(row)]
+    if generic_candidates:
+        return generic_candidates[-1]
+    return 0
+
+
+def preprocess_rows(all_rows: list[list[str]]) -> tuple[list[list[str]], list[Change]]:
+    header_idx = detect_header_row_index(all_rows)
+    if header_idx <= 0:
+        return all_rows, []
+
+    changes: list[Change] = []
+    for i, row in enumerate(all_rows[:header_idx], start=1):
+        row_text = _joined_row_text(row) or "[empty metadata row]"
+        changes.append(
+            Change(
+                i,
+                "[file metadata]",
+                row_text[:200],
+                "",
+                "Removed",
+                "File Metadata: row before detected header moved out of the dataset",
+            )
+        )
+
+    return all_rows[header_idx:], changes
+
+
+def is_formula_residue(value: str) -> bool:
+    return bool(FORMULA_RE.match(_strip_nulls(value).strip()))
+
+
+def detect_formula_row(row: list[str], headers: list[str]) -> tuple[bool, str]:
+    for idx, cell in enumerate(row):
+        if is_formula_residue(cell):
+            label = headers[idx] if idx < len(headers) else f"[col {idx + 1}]"
+            return True, label
+    return False, ""
+
+
+def looks_like_notes_row(row: list[str]) -> bool:
+    non_empty = _non_empty_cells(row)
+    if len(non_empty) != 1:
+        return False
+    text = non_empty[0]
+    if len(text) <= 50:
+        return False
+    if len(text.split()) < 8:
+        return False
+    return bool(NOTES_ROW_RE.search(text) or re.search(r"[A-Za-z]{4,}", text))
+
+
+def parse_amount_like(value: str) -> float | None:
+    if not value.strip():
+        return None
+    normalised, changed, _ = normalise_amount(value)
+    candidate = normalised if changed or normalised != value else value.strip()
+    try:
+        return float(candidate)
+    except ValueError:
+        return None
+
+
+def row_amount_totalish(label_cell: str, amount_cell: str, running_total: float) -> bool:
+    if not TOTAL_LABEL_RE.search(label_cell or ""):
+        return False
+    amount = parse_amount_like(amount_cell or "")
+    if amount is None:
+        return False
+    tolerance = max(1.0, abs(running_total) * 0.02)
+    return abs(amount - running_total) <= tolerance
+
+
+def sparse_total_label_row(row: list[str], label_idx: int, amount_idx: int) -> bool:
+    label_cell = row[label_idx] if label_idx < len(row) else ""
+    amount_cell = row[amount_idx] if amount_idx < len(row) else ""
+    if not TOTAL_LABEL_RE.search(label_cell or ""):
+        return False
+    if parse_amount_like(amount_cell or "") is None:
+        return False
+    non_empty = sum(1 for cell in row if cell.strip())
+    return non_empty <= 2
+
+
+def extract_currency_from_text(value: str) -> tuple[str | None, str | None]:
+    raw = value.strip()
+    if not raw:
+        return None, None
+
+    code_match = re.search(r"\b(USD|EUR|GBP|INR|CAD|AUD|JPY)\b", raw, flags=re.IGNORECASE)
+    symbol_match = next((symbol for symbol in CURRENCY_SYMBOL_MAP if symbol in raw), None)
+    currency = None
+    if code_match:
+        currency = code_match.group(1).upper()
+    elif symbol_match:
+        currency = CURRENCY_SYMBOL_MAP[symbol_match]
+
+    amount_candidate = raw
+    if code_match:
+        amount_candidate = re.sub(r"\b(USD|EUR|GBP|INR|CAD|AUD|JPY)\b", "", amount_candidate, flags=re.IGNORECASE)
+    if symbol_match:
+        amount_candidate = amount_candidate.replace(symbol_match, "")
+    amount_candidate = " ".join(amount_candidate.split()).strip()
+
+    if currency and parse_amount_like(amount_candidate) is not None:
+        return amount_candidate, currency
+    return None, currency
+
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # STEP 1 — Read with mixed-encoding tolerance (via loader)
@@ -128,6 +277,9 @@ QUARANTINE_REASONS = {
     "WHITESPACE":          "Row is all whitespace",
     "STRUCTURAL_HEADER":   "Structural row (TOTAL/subtotal/header repeat)",
     "STRUCTURAL_TOTAL":    "Structural row (TOTAL/subtotal/header repeat)",
+    "CALCULATED_SUBTOTAL": "Calculated subtotal row",
+    "NOTES_ROW":           "Appears to be a notes row",
+    "FORMULA":             "Excel formula found, not data",
     "SPARSE":              f"Less than {int(SPARSE_THRESHOLD_SCHEMA * 100)}% columns filled",
 }
 
@@ -141,8 +293,15 @@ def classify_raw_row(row: list[str], header_sig: tuple[str, ...]) -> str:
     if tuple(c.lower() for c in stripped) == header_sig:
         return "STRUCTURAL_HEADER"
 
-    if stripped[0].upper() == "TOTAL" and all(c == "" for c in stripped[1:3]):
-        return "STRUCTURAL_TOTAL"
+    if looks_like_notes_row(row):
+        return "NOTES_ROW"
+
+    if any(is_formula_residue(cell) for cell in stripped):
+        return "FORMULA"
+
+    if TOTAL_LABEL_RE.search(stripped[0]) and len(stripped) > COL["Amount"]:
+        if parse_amount_like(stripped[COL["Amount"]]) is not None:
+            return "NORMAL"
 
     non_empty = sum(1 for c in stripped if c)
     if non_empty < N_COLS * SPARSE_THRESHOLD_SCHEMA:
@@ -397,6 +556,72 @@ def normalise_currency(value: str) -> tuple[str, bool, str]:
     return v, False, ""
 
 
+def split_amount_currency_fields(row: list[str], row_num: int) -> tuple[list[str], list[Change]]:
+    row = row.copy()
+    changes: list[Change] = []
+
+    amount_val = row[COL["Amount"]]
+    currency_val = row[COL["Currency"]]
+
+    extracted_amount, extracted_currency = extract_currency_from_text(amount_val)
+    if extracted_currency and (not currency_val.strip()):
+        if extracted_amount and extracted_amount != amount_val:
+            row[COL["Amount"]] = extracted_amount
+            changes.append(
+                Change(
+                    row_num,
+                    "Amount",
+                    amount_val,
+                    extracted_amount,
+                    "Fixed",
+                    "Currency marker removed from Amount field so the numeric value can be parsed cleanly",
+                )
+            )
+        row[COL["Currency"]] = extracted_currency
+        changes.append(
+            Change(
+                row_num,
+                "Currency",
+                currency_val,
+                extracted_currency,
+                "Fixed",
+                "Currency recovered from Amount field",
+            )
+        )
+        amount_val = row[COL["Amount"]]
+        currency_val = row[COL["Currency"]]
+
+    if not row[COL["Amount"]].strip() and currency_val.strip():
+        extracted_amount, extracted_currency = extract_currency_from_text(currency_val)
+        if extracted_amount:
+            original_currency = row[COL["Currency"]]
+            row[COL["Amount"]] = extracted_amount
+            changes.append(
+                Change(
+                    row_num,
+                    "Amount",
+                    "",
+                    extracted_amount,
+                    "Fixed",
+                    "Amount recovered from Currency field",
+                )
+            )
+            if extracted_currency:
+                row[COL["Currency"]] = extracted_currency
+                changes.append(
+                    Change(
+                        row_num,
+                        "Currency",
+                        original_currency,
+                        extracted_currency,
+                        "Fixed",
+                        "Currency standardised after recovering combined amount/currency text",
+                    )
+                )
+
+    return row, changes
+
+
 def normalise_name(value: str) -> tuple[str, bool, str]:
     v = " ".join(value.split())   # collapse multiple spaces
     if not v:
@@ -438,6 +663,9 @@ def normalise_status(value: str) -> tuple[str, bool, str]:
 def apply_normalisations(row: list[str], row_num: int) -> tuple[list[str], list[Change]]:
     row     = row.copy()
     changes = []
+
+    row, split_changes = split_amount_currency_fields(row, row_num)
+    changes.extend(split_changes)
 
     def maybe_fix(idx, fn, col_label):
         orig = row[idx]
@@ -485,17 +713,61 @@ def needs_review(row: list[str], was_padded: bool) -> bool:
     return was_padded
 
 
+def forward_fill_merged_cell_gaps(clean_data: list[CleanRow], changelog: list[Change]) -> None:
+    fill_columns = [COL["Department"], COL["Category"], COL["Status"], COL["Currency"]]
+
+    for col_idx in fill_columns:
+        last_value = ""
+        gap_indexes: list[int] = []
+
+        for idx, entry in enumerate(clean_data):
+            cell_value = entry.row[col_idx].strip()
+            other_filled = sum(1 for j, cell in enumerate(entry.row) if j != col_idx and cell.strip())
+
+            if cell_value:
+                if last_value and gap_indexes and len(gap_indexes) <= 5:
+                    for gap_idx in gap_indexes:
+                        gap_entry = clean_data[gap_idx]
+                        if gap_entry.row[col_idx].strip():
+                            continue
+                        gap_entry.row[col_idx] = last_value
+                        gap_entry.was_modified = True
+                        gap_entry.needs_review = True
+                        changelog.append(
+                            Change(
+                                gap_entry.row_num,
+                                HEADERS[col_idx],
+                                "",
+                                last_value,
+                                "Fixed",
+                                "Blank categorical cell forward-filled to repair a merged-cell style export gap",
+                            )
+                        )
+                last_value = cell_value
+                gap_indexes = []
+                continue
+
+            if last_value and other_filled >= 2:
+                gap_indexes.append(idx)
+            else:
+                gap_indexes = []
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # MAIN PROCESSING LOOP
 # ══════════════════════════════════════════════════════════════════════════
 
-def process_schema_specific(all_rows: list[list[str]]) -> tuple[list[CleanRow], list[QuarantineRow], list[Change]]:
+def process_schema_specific(
+    all_rows: list[list[str]],
+    initial_changelog: list[Change] | None = None,
+) -> tuple[list[CleanRow], list[QuarantineRow], list[Change]]:
     header_sig = tuple(c.strip().lower() for c in all_rows[0])
 
     clean_data: list[CleanRow]       = []
     quarantine: list[QuarantineRow]  = []
-    changelog:  list[Change]         = []
+    changelog:  list[Change]         = list(initial_changelog or [])
     seen_exact: dict[tuple, int]     = {}   # normalized row → original row_num
+    running_amount_total = 0.0
 
     # Skip row 0 (actual column headers); start from row 1 (metadata / first data row)
     data_rows = all_rows[1:]
@@ -512,10 +784,15 @@ def process_schema_specific(all_rows: list[list[str]]) -> tuple[list[CleanRow], 
             q_row = [c.strip() for c in raw_row]
             q_row = (q_row + [""] * N_COLS)[:N_COLS]          # normalise length
             row_id = next((c for c in q_row if c), "[empty]")
+            column_hint = "[row]"
+            if cls == "FORMULA":
+                _, formula_column = detect_formula_row(raw_row, HEADERS)
+                column_hint = formula_column or "formula_residue"
             quarantine.append(QuarantineRow(q_row, row_num, q_reason))
             changelog.append(Change(
-                row_num, "[row]", row_id[:60], "",
-                "Quarantined", q_reason
+                row_num, column_hint, row_id[:60], "",
+                "Quarantined",
+                "formula_residue: Excel formula found, not data" if cls == "FORMULA" else q_reason
             ))
             continue
 
@@ -532,6 +809,21 @@ def process_schema_specific(all_rows: list[list[str]]) -> tuple[list[CleanRow], 
         # ── Normalise values ──────────────────────────────────────────────
         fixed, norm_chgs = apply_normalisations(cleaned, row_num)
         changelog.extend(norm_chgs)
+
+        label_cell = fixed[COL["Employee Name"]] or fixed[COL["Department"]] or fixed[COL["Category"]]
+        if row_amount_totalish(label_cell, fixed[COL["Amount"]], running_amount_total) or sparse_total_label_row(fixed, COL["Employee Name"], COL["Amount"]):
+            quarantine.append(QuarantineRow(fixed, row_num, QUARANTINE_REASONS["CALCULATED_SUBTOTAL"]))
+            changelog.append(
+                Change(
+                    row_num,
+                    "Amount",
+                    fixed[COL["Amount"]],
+                    "",
+                    "Quarantined",
+                    "Calculated subtotal row",
+                )
+            )
+            continue
 
         was_modified = bool(align_chg or cell_chgs or norm_chgs)
 
@@ -552,6 +844,11 @@ def process_schema_specific(all_rows: list[list[str]]) -> tuple[list[CleanRow], 
             was_modified = was_modified,
             needs_review = needs_review(fixed, was_padded),
         ))
+        parsed_amount = parse_amount_like(fixed[COL["Amount"]])
+        if parsed_amount is not None:
+            running_amount_total += parsed_amount
+
+    forward_fill_merged_cell_gaps(clean_data, changelog)
 
     # ── Near-duplicate detection (second pass on clean_data) ─────────────
     nd_index: dict[tuple, int] = {}   # key → index in clean_data
@@ -597,6 +894,9 @@ GENERIC_QUARANTINE_REASONS = {
     "WHITESPACE":        "Row is all whitespace",
     "STRUCTURAL_HEADER": "Structural row (header repeated)",
     "STRUCTURAL_TOTAL":  "Structural row (TOTAL/subtotal)",
+    "CALCULATED_SUBTOTAL": "Calculated subtotal row",
+    "NOTES_ROW":         "Appears to be a notes row",
+    "FORMULA":           "Excel formula found, not data",
     "SPARSE":            f"Less than {int(SPARSE_THRESHOLD_GENERIC * 100)}% columns filled",
 }
 
@@ -641,6 +941,12 @@ def classify_raw_row_generic(row: list[str], header_sig: tuple[str, ...], n_cols
 
     if tuple(c.lower() for c in stripped) == header_sig:
         return "STRUCTURAL_HEADER"
+
+    if looks_like_notes_row(row):
+        return "NOTES_ROW"
+
+    if any(is_formula_residue(cell) for cell in stripped):
+        return "FORMULA"
 
     first_non_empty = next((c for c in stripped if c), "")
     non_empty = sum(1 for c in stripped if c)
@@ -713,7 +1019,7 @@ def needs_review_generic(row: list[str], structure_changed: bool) -> bool:
 
 
 def process_generic(
-    all_rows: list[list[str]], delimiter: str
+    all_rows: list[list[str]], delimiter: str, initial_changelog: list[Change] | None = None
 ) -> tuple[list[CleanRow], list[QuarantineRow], list[Change], list[str]]:
     headers, header_changes = normalise_headers_generic(all_rows[0])
     n_cols = len(headers)
@@ -721,8 +1027,11 @@ def process_generic(
 
     clean_data: list[CleanRow] = []
     quarantine: list[QuarantineRow] = []
-    changelog: list[Change] = list(header_changes)
+    changelog: list[Change] = list(initial_changelog or []) + list(header_changes)
     seen_exact: dict[tuple, int] = {}
+    running_amount_total = 0.0
+    amount_idx = next((i for i, header in enumerate(headers) if "amount" in header.lower() or "total" in header.lower()), None)
+    label_idx = 0
 
     for i, raw_row in enumerate(all_rows[1:], start=2):
         cls = classify_raw_row_generic(raw_row, header_sig, n_cols)
@@ -731,8 +1040,21 @@ def process_generic(
             q_row = [c.strip() for c in raw_row]
             q_row = (q_row + [""] * n_cols)[:n_cols]
             row_id = next((c for c in q_row if c), "[empty]")
+            column_hint = "[row]"
+            if cls == "FORMULA":
+                _, formula_column = detect_formula_row(raw_row, headers)
+                column_hint = formula_column or "formula_residue"
             quarantine.append(QuarantineRow(q_row, i, q_reason))
-            changelog.append(Change(i, "[row]", row_id[:60], "", "Quarantined", q_reason))
+            changelog.append(
+                Change(
+                    i,
+                    column_hint,
+                    row_id[:60],
+                    "",
+                    "Quarantined",
+                    "formula_residue: Excel formula found, not data" if cls == "FORMULA" else q_reason,
+                )
+            )
             continue
 
         aligned, align_change, structure_changed = fix_alignment_generic(raw_row, i, n_cols, delimiter)
@@ -742,6 +1064,16 @@ def process_generic(
         cleaned, cell_changes = clean_row_generic(aligned, i, headers)
         changelog.extend(cell_changes)
         was_modified = bool(align_change or cell_changes)
+
+        label_text = cleaned[label_idx] if label_idx < len(cleaned) else ""
+        amount_text = cleaned[amount_idx] if amount_idx is not None and amount_idx < len(cleaned) else ""
+        if amount_idx is not None and (
+            row_amount_totalish(label_text, amount_text, running_amount_total)
+            or sparse_total_label_row(cleaned, label_idx, amount_idx)
+        ):
+            quarantine.append(QuarantineRow(cleaned, i, GENERIC_QUARANTINE_REASONS["CALCULATED_SUBTOTAL"]))
+            changelog.append(Change(i, headers[amount_idx], amount_text, "", "Quarantined", "Calculated subtotal row"))
+            continue
 
         row_key = tuple(cleaned)
         if row_key in seen_exact:
@@ -760,6 +1092,10 @@ def process_generic(
                 needs_review=needs_review_generic(cleaned, structure_changed),
             )
         )
+        if amount_idx is not None:
+            parsed_amount = parse_amount_like(cleaned[amount_idx])
+            if parsed_amount is not None:
+                running_amount_total += parsed_amount
 
     return clean_data, quarantine, changelog, headers
 
@@ -873,14 +1209,19 @@ def write_workbook(
 # ══════════════════════════════════════════════════════════════════════════
 
 ASSUMPTIONS = [
+    "Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values",
     "Ambiguous DD/MM vs MM/DD dates: day-first assumed; fallback to month-first if day-first is impossible",
     "MM-DD-YY two-digit years: treated as 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50",
     "Unix timestamps: interpreted as UTC; converted to YYYY-MM-DD",
     "Excel serial dates: Windows epoch (1899-12-30); range 40,000–55,000 treated as dates",
     "European decimal 1.200,00: detected when period precedes comma; converted to 1200.00",
+    "Combined values like '$1,200 USD' are split so Amount keeps the numeric value and Currency keeps the ISO code",
     "Blank / N/A / TBD amounts: cleared to empty string and flagged needs_review=TRUE",
     "\"INR ₹\" and similar symbol+code combos: symbol stripped, ISO code kept",
     "\"Eng\" department abbreviation: kept as-is (expanding abbreviations requires a lookup table)",
+    "Short blank runs in categorical columns are forward-filled when they look like merged-cell export gaps; filled rows are flagged for review",
+    "Rows with long single-cell prose are treated as notes/metadata rather than transactional data",
+    "Rows labelled TOTAL/Subtotal/SUM are quarantined when the amount matches the running total closely enough to look calculated",
     "Near-duplicate rows (same Name/Amount/Currency/Category, date within 2 days): both kept, both flagged",
     "Exact duplicates: first occurrence kept; subsequent occurrences removed and logged",
     "Short rows (< 8 columns): padded with empty strings; flagged needs_review=TRUE",
@@ -888,10 +1229,13 @@ ASSUMPTIONS = [
 ]
 
 GENERIC_ASSUMPTIONS = [
+    "Rows that still contain Excel formulas as text are quarantined because they are not stable data values",
     "Delimiter is auto-detected from the file content (comma/semicolon/tab/pipe)",
     "Rows with overflow columns are repaired by merging overflow into the last column",
     "Rows with missing trailing columns are padded with empty strings",
     "Repeated header rows and subtotal/total structural rows are quarantined",
+    "Long one-cell prose rows are treated as notes rather than tabular data",
+    "Rows before a detected header are moved to File Metadata entries in the Change Log",
     "BOM/null bytes/line breaks/smart quotes are normalised in text cells",
     "Exact duplicate rows are removed (first occurrence kept)",
 ]
@@ -922,16 +1266,22 @@ def main():
         print("ERROR: File is empty or has only a header.", file=sys.stderr)
         sys.exit(1)
 
-    total_in = len(all_rows)   # includes the actual header row
+    original_total_in = len(all_rows)
+    all_rows, metadata_changes = preprocess_rows(all_rows)
+    if len(all_rows) < 2:
+        print("ERROR: File is empty after metadata/header detection.", file=sys.stderr)
+        sys.exit(1)
+
+    total_in = original_total_in   # includes metadata/header rows as they arrived
 
     if is_schema_specific_header(all_rows[0]):
         mode = "schema-specific"
-        clean_data, quarantine, changelog = process_schema_specific(all_rows)
+        clean_data, quarantine, changelog = process_schema_specific(all_rows, initial_changelog=metadata_changes)
         headers = HEADERS
         assumptions = ASSUMPTIONS
     else:
         mode = "generic"
-        clean_data, quarantine, changelog, headers = process_generic(all_rows, delimiter)
+        clean_data, quarantine, changelog, headers = process_generic(all_rows, delimiter, initial_changelog=metadata_changes)
         assumptions = GENERIC_ASSUMPTIONS
 
     write_workbook(clean_data, quarantine, changelog, output_path, headers=headers)

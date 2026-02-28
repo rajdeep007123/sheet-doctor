@@ -1,0 +1,125 @@
+SECTION 1 — FILE OVERVIEW
+📄 File: extreme_mess.csv
+📊 Size: 46 rows × 8 columns
+💾 Format: csv
+🔤 Encoding: MacRoman
+⏱  Scanned: 2026-02-28T15:21:48
+
+SECTION 2 — HEALTH SCORE
+🩺 Health Score: 32/100 (Poor — major surgery required)
+  • Encoding problems: -10
+  • Structural problems: -30
+  • Date chaos: -5
+  • Missing data: -3
+  • Duplicates: -10
+  • Data quality issues: -10
+
+⚠️ This file appears to contain PII. Handle according to your data protection policy.
+
+SECTION 3 — ISSUES FOUND
+🚨 Critical (will break imports)
+- Some rows have too many or too few columns, which will break imports and shift values into the wrong fields.
+  Columns: row structure
+  Rows affected: 8
+  Auto-fixable: ✅
+- The header row appears again inside the data, which will be treated as a broken data row during import.
+  Columns: row structure
+  Rows affected: 1
+  Auto-fixable: ✅
+
+⚠️  Warning (will cause analysis errors)
+- The file uses MacRoman instead of UTF-8, so some systems may misread special characters.
+  Columns: file-wide
+  Rows affected: 46
+  Auto-fixable: ✅
+- The Employee Name column uses inconsistent capitalisation, which can split what should be one category into several versions.
+  Columns: Employee Name
+  Rows affected: 44
+  Auto-fixable: ✅
+- The Date column mixes multiple date formats, so the same date may be interpreted differently by different tools.
+  Columns: Date
+  Rows affected: 42
+  Auto-fixable: ✅
+- The Department column uses inconsistent capitalisation, which can split what should be one category into several versions.
+  Columns: Department
+  Rows affected: 42
+  Auto-fixable: ❌
+- The Department column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.
+  Columns: Department
+  Rows affected: 42
+  Auto-fixable: ❌
+- The Currency column uses inconsistent capitalisation, which can split what should be one category into several versions.
+  Columns: Currency
+  Rows affected: 41
+  Auto-fixable: ✅
+- The Currency column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.
+  Columns: Currency
+  Rows affected: 41
+  Auto-fixable: ❌
+- The Amount column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.
+  Columns: Amount
+  Rows affected: 40
+  Auto-fixable: ❌
+- The Status column uses inconsistent capitalisation, which can split what should be one category into several versions.
+  Columns: Status
+  Rows affected: 39
+  Auto-fixable: ✅
+- The Status column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.
+  Columns: Status
+  Rows affected: 39
+  Auto-fixable: ❌
+- Some characters look corrupted, which may change names, notes, or other text values.
+  Columns: file-wide
+  Rows affected: 3
+  Auto-fixable: ✅
+- Completely blank rows are mixed into the file and can interfere with import counts and analysis.
+  Columns: row structure
+  Rows affected: 2
+  Auto-fixable: ✅
+- The Amount column contains outlier values that look unusually large or small compared with the rest of the file.
+  Columns: Amount
+  Rows affected: 1
+  Auto-fixable: ❌
+
+ℹ️  Info (cosmetic, worth fixing)
+- The Employee Name column appears to contain personally identifiable information that may need extra care before sharing.
+  Columns: Employee Name
+  Rows affected: 44
+  Auto-fixable: ❌
+
+SECTION 4 — COLUMN BREAKDOWN
+Employee Name | name | 4.35% null | Inconsistent capitalisation; Possible PII detected (emails/phones/names)
+Department | categorical | 8.7% null | Inconsistent capitalisation; Possible duplicates with slight differences
+Date | date | 8.7% null | Mixed date formats detected; Inconsistent capitalisation
+Amount | currency/amount | 13.04% null | Possible duplicates with slight differences; Outliers detected (values outside 3 standard deviations)
+Currency | currency code | 10.87% null | Inconsistent capitalisation; Possible duplicates with slight differences
+Category | categorical | 13.04% null | No major issues detected
+Status | categorical | 15.22% null | Inconsistent capitalisation; Possible duplicates with slight differences
+Notes | free text | 15.22% null | No major issues detected
+
+SECTION 5 — RECOMMENDED ACTIONS
+1. Repair 8 structurally broken row(s) with missing or extra columns (auto-fixable)
+2. Remove or quarantine 3 structural row(s) such as blank lines or repeated headers (auto-fixable)
+3. Normalize mixed date formats in Date (4 formats across about 42 populated row(s)) (auto-fixable)
+4. Review near-duplicate values in Department, Amount, Currency, Status to decide which versions should be merged or kept
+5. Manually check outlier values in Amount before trusting totals or downstream analysis
+6. Re-decode and normalise text values from MacRoman encoding so names and notes are readable everywhere (auto-fixable)
+
+SECTION 6 — ASSUMPTIONS
+• Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values
+• Ambiguous DD/MM vs MM/DD dates: day-first assumed; fallback to month-first if day-first is impossible
+• MM-DD-YY two-digit years: treated as 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50
+• Unix timestamps: interpreted as UTC; converted to YYYY-MM-DD
+• Excel serial dates: Windows epoch (1899-12-30); range 40,000–55,000 treated as dates
+• European decimal 1.200,00: detected when period precedes comma; converted to 1200.00
+• Combined values like '$1,200 USD' are split so Amount keeps the numeric value and Currency keeps the ISO code
+• Blank / N/A / TBD amounts: cleared to empty string and flagged needs_review=TRUE
+• "INR ₹" and similar symbol+code combos: symbol stripped, ISO code kept
+• "Eng" department abbreviation: kept as-is (expanding abbreviations requires a lookup table)
+• Short blank runs in categorical columns are forward-filled when they look like merged-cell export gaps; filled rows are flagged for review
+• Rows with long single-cell prose are treated as notes/metadata rather than transactional data
+• Rows labelled TOTAL/Subtotal/SUM are quarantined when the amount matches the running total closely enough to look calculated
+• Near-duplicate rows (same Name/Amount/Currency/Category, date within 2 days): both kept, both flagged
+• Exact duplicates: first occurrence kept; subsequent occurrences removed and logged
+• Short rows (< 8 columns): padded with empty strings; flagged needs_review=TRUE
+• Metadata export row (sparse, 1/8 fields filled): quarantined as 'Less than 50% columns filled'

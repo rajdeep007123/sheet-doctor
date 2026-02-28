@@ -7,6 +7,10 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Added
+- **`csv-doctor` / `reporter.py`** — human-readable health report generator:
+  - Combines `diagnose.py` and `column_detector.py` into a plain-text report and a structured JSON artifact
+  - Includes file overview, health score, grouped issues, per-column breakdown, recommended actions, and assumptions
+  - Emits a dedicated PII warning when likely names, emails, phone numbers, or national-ID-like values are detected
 - **`csv-doctor` / `column_detector.py`** — standalone semantic profiler for messy tabular data:
   - Infers likely column meaning even when headers are weak or wrong (`date`, `currency/amount`, `plain number`, `percentage`, `email`, `phone`, `URL`, `country`, `currency code`, `name`, `categorical`, `free text`, `boolean`, `ID/code`, `unknown`)
   - Emits per-column quality stats: null/unique counts and percentages, top values, sample values, numeric/date min/max, mixed-type flag, and suspected issues
@@ -22,24 +26,38 @@ All notable changes to sheet-doctor are documented here.
 - **`tests/test_column_detector.py`** — regression coverage for semantic inference:
   - Locks down the expected type/issue profile for `sample-data/extreme_mess.csv`
   - Covers generic headers, whitespace and near-duplicate detection, and numeric/percentage ranges
+- **`tests/test_heal_edge_cases.py`** — focused healer regression coverage:
+  - Formula residue rows are quarantined
+  - Leading metadata rows are removed before the actual header and logged
+  - Combined amount/currency values are split correctly
+  - Notes rows and subtotal rows are quarantined with explicit reasons
+  - Merged-cell style blank runs are forward-filled in categorical columns
 
 ### Changed
 - **`requirements.txt`** — added `streamlit` and `requests` for the local UI layer and public-file URL imports
 - **`csv-doctor` / `diagnose.py`** — now embeds `column_semantics` in the main JSON health report:
   - Includes per-column inferred types, quality stats, and suspected issues alongside the existing structural diagnostics
   - Summary issue counting now includes semantic issue presence and unknown-column detection as light signals without replacing the existing structural verdict model
+- **`csv-doctor` / `heal.py`** — hardened for weird real-world export failures:
+  - Quarantines formula strings left behind by Excel exports (for example `=SUM(...)`) as `Excel formula found, not data`
+  - Detects pre-header metadata/header rows, removes them from the dataset, and logs them as `File Metadata` entries in the Change Log
+  - Quarantines sparse TOTAL/SUM/Subtotal rows with numeric amounts as `Calculated subtotal row`
+  - Quarantines long single-cell prose rows as `Appears to be a notes row`
+  - Repairs merged-cell style blank runs in categorical columns using forward-fill with explicit Change Log entries
+  - Splits combined amount/currency values such as `$1,200 USD` back into the correct columns before normalisation
 - **`csv-doctor` / `loader.py`** — tightened file-loading contract:
   - `.txt` files now raise a clear error when they are plain text rather than delimited/tabular data
   - Multi-sheet `.xlsx`, `.xls`, and `.ods` files now require explicit `sheet_name` selection in non-interactive mode; `consolidate_sheets=True` is allowed only when columns match
   - Successful spreadsheet loads now include `sheet_names` in the result dict
   - Workbook metadata reads now close file handles cleanly to avoid resource warnings in batch/test runs
+- **`csv-doctor` / `column_detector.py`** — extended PII coverage to include Aadhaar-like national-ID patterns in addition to emails, phone numbers, and names
 - **`web/app.py`** — improved UI behavior:
   - Disabled upload/URL inputs only during active processing, not immediately after file selection
   - Removed Streamlit's top decoration/status strip and replaced it with an in-app loader message
   - Added public URL rewriting for GitHub, Dropbox, Google Drive, OneDrive, and Box share links
   - Added Google Sheets `/edit` → `.xlsx` export handling and response-based file-type inference when the shared URL hides the extension
 - **`web/UI_CHANGELOG.md`** — added a dedicated UI-facing notes log for Streamlit interface changes
-- **Docs** — README, SKILL, and CONTRIBUTING updated to match the stricter loader behavior, test command, current UI capabilities, and the new `column_semantics` report shape
+- **Docs** — README, SKILL, and CONTRIBUTING updated to match the stricter loader behavior, test command, current UI capabilities, the new `column_semantics` report shape, and the new healer edge-case coverage
 
 ---
 

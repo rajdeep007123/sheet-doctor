@@ -97,6 +97,7 @@ PHONE_RE = re.compile(
 URL_RE = re.compile(r"^(?:https?://|www\.)\S+$", re.IGNORECASE)
 PERCENT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?%$")
 ID_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9][A-Za-z0-9._/\-]{2,}$")
+NATIONAL_ID_RE = re.compile(r"^(?:\d{12}|\d{4}\s\d{4}\s\d{4})$")
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z'`.-]*(?:\s+[A-Za-z][A-Za-z'`.-]*){1,3}$")
 WHITESPACE_RE = re.compile(r"^\s+|\s+$")
 SENTINEL_NULLS = {"", "na", "n/a", "none", "null", "nil", "nan", "tbd", "-"}
@@ -322,6 +323,8 @@ def detect_atomic_type(value: Any) -> str:
         return "country name or code"
     if lower in BOOLEAN_TRUE or lower in BOOLEAN_FALSE:
         return "boolean"
+    if NATIONAL_ID_RE.fullmatch(text):
+        return "ID/code"
     if any(symbol in text for symbol in ("$", "€", "£", "¥", "₹")) or re.search(
         r"\b(?:USD|EUR|INR|GBP|JPY|CAD|AUD|AED|CHF)\b", text, re.IGNORECASE
     ):
@@ -495,8 +498,10 @@ def detect_suspected_issues(
                 issues.append("Outliers detected (values outside 3 standard deviations)")
 
     pii_types = {"email address", "phone number", "name"}
-    pii_hits = sum(1 for kind in atomic_types if kind in pii_types)
-    if detected_type in pii_types or (non_null_count and pii_hits / non_null_count >= 0.4):
+    pii_hits = sum(1 for value, kind in zip(non_null_texts, atomic_types) if kind in pii_types or NATIONAL_ID_RE.fullmatch(value))
+    if detected_type in pii_types or (
+        detected_type == "ID/code" and any(NATIONAL_ID_RE.fullmatch(value) for value in non_null_texts)
+    ) or (non_null_count and pii_hits / non_null_count >= 0.4):
         issues.append("Possible PII detected (emails/phones/names)")
 
     return issues
