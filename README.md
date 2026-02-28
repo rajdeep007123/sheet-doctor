@@ -123,6 +123,7 @@ What the UI currently does:
 - Preview the loaded table before acting
 - Route to diagnose or heal flows
 - Process files sequentially with an in-app progress loader
+- Show source-specific notes for special URL handling such as Google Sheets export
 - Download a readable `.xlsx` output
 
 Current UI healing matrix:
@@ -142,6 +143,9 @@ Public URL support:
 Remote file-type detection:
 - If the public URL hides the extension, the UI now infers the file type from the response headers and file signature
 - This fixes masked links where the shared URL looks like a web page but actually serves an Excel/CSV/ODS file
+
+UI notes:
+- Ongoing interface-specific notes live in `web/UI_CHANGELOG.md`
 
 ---
 

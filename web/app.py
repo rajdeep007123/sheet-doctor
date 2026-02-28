@@ -366,6 +366,27 @@ def source_label(item: dict) -> str:
     return f"{item['name']}  •  URL" if item["source_kind"] == "url" else item["name"]
 
 
+def source_note(item: dict) -> Optional[str]:
+    if item["source_kind"] != "url":
+        return None
+
+    parsed = urlparse(item["source_label"])
+    host = parsed.netloc.lower()
+    path = parsed.path
+
+    if "docs.google.com" in host and "/spreadsheets/" in path:
+        return "Detected Google Sheet. It will be exported to .xlsx before processing."
+    if host == "github.com" and "/blob/" in path:
+        return "Detected GitHub file page. The URL will be rewritten to the raw file before processing."
+    if "dropbox.com" in host:
+        return "Detected Dropbox share link. Direct download mode will be requested before processing."
+    if "box.com" in host:
+        return "Detected Box share link. Direct download mode will be requested before processing."
+    if host.endswith("1drv.ms") or "onedrive.live.com" in host:
+        return "Detected OneDrive share link. Download mode will be requested before processing."
+    return None
+
+
 def source_items(uploads, raw_urls: str) -> list[dict]:
     items = []
     for upload in uploads or []:
@@ -812,6 +833,9 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
         support_heal, support_message = heal_support_message(ext)
         with st.expander(source_label(item), expanded=idx == 0 and count <= 3):
             st.caption(support_message)
+            note = source_note(item)
+            if note:
+                st.info(note)
             if ext and ext not in SUPPORTED_EXTS:
                 st.error(f"Unsupported format: {ext}")
                 continue
