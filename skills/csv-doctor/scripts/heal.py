@@ -180,13 +180,13 @@ def _looks_like_header_row(row: list[str]) -> bool:
 
 
 def detect_header_row_index(all_rows: list[list[str]]) -> int:
-    search_rows = all_rows[:10]
+    search_rows = all_rows[:20]
     exact_matches = [
         idx for idx, row in enumerate(search_rows)
         if is_schema_specific_header(row) and idx < len(all_rows) - 1
     ]
     if exact_matches:
-        return exact_matches[-1]
+        return exact_matches[0]
 
     generic_candidates = [
         idx for idx, row in enumerate(search_rows)
@@ -197,13 +197,66 @@ def detect_header_row_index(all_rows: list[list[str]]) -> int:
     return 0
 
 
+def detect_header_band_start_index(all_rows: list[list[str]], header_idx: int) -> int:
+    band_start = header_idx
+    max_band_rows = 3
+
+    while band_start > 0 and (header_idx - band_start + 1) < max_band_rows:
+        previous = all_rows[band_start - 1]
+        non_empty = _non_empty_cells(previous)
+        if len(non_empty) < 2:
+            break
+        if not _looks_like_header_row(previous):
+            break
+        band_start -= 1
+
+    return band_start
+
+
+def _expand_header_band_row(row: list[str], width: int) -> list[str]:
+    padded = [(_strip_nulls(cell).strip()) for cell in row] + [""] * max(0, width - len(row))
+    expanded: list[str] = []
+    current = ""
+    for cell in padded[:width]:
+        if cell:
+            current = cell
+            expanded.append(cell)
+        else:
+            expanded.append(current)
+    return expanded
+
+
+def merge_header_band_rows(rows: list[list[str]]) -> list[str]:
+    width = max((len(row) for row in rows), default=0)
+    if width == 0:
+        return []
+
+    expanded_rows = [_expand_header_band_row(row, width) for row in rows]
+    merged: list[str] = []
+    for col_idx in range(width):
+        tokens: list[str] = []
+        seen: set[str] = set()
+        for row in expanded_rows:
+            value = row[col_idx].strip()
+            if not value:
+                continue
+            key = value.lower()
+            if key in seen:
+                continue
+            tokens.append(value)
+            seen.add(key)
+        merged.append(" ".join(tokens).strip())
+    return merged
+
+
 def preprocess_rows(all_rows: list[list[str]]) -> tuple[list[list[str]], list[Change]]:
     header_idx = detect_header_row_index(all_rows)
     if header_idx <= 0:
         return all_rows, []
 
+    header_band_start = detect_header_band_start_index(all_rows, header_idx)
     changes: list[Change] = []
-    for i, row in enumerate(all_rows[:header_idx], start=1):
+    for i, row in enumerate(all_rows[:header_band_start], start=1):
         row_text = _joined_row_text(row) or "[empty metadata row]"
         changes.append(
             Change(
@@ -215,6 +268,21 @@ def preprocess_rows(all_rows: list[list[str]]) -> tuple[list[list[str]], list[Ch
                 "File Metadata: row before detected header moved out of the dataset",
             )
         )
+
+    header_rows = all_rows[header_band_start : header_idx + 1]
+    if len(header_rows) > 1:
+        merged_header = merge_header_band_rows(header_rows)
+        changes.append(
+            Change(
+                header_band_start + 1,
+                "[header band]",
+                " | ".join(_joined_row_text(row) for row in header_rows if _joined_row_text(row))[:200],
+                " | ".join(cell for cell in merged_header if cell)[:200],
+                "Fixed",
+                "Multi-row workbook header band merged into a single semantic header row",
+            )
+        )
+        return [merged_header] + all_rows[header_idx + 1 :], changes
 
     return all_rows[header_idx:], changes
 
@@ -826,6 +894,27 @@ def needs_review(row: list[str], was_padded: bool) -> bool:
 def forward_fill_merged_cell_gaps_generic(
     clean_data: list[CleanRow], changelog: list[Change], headers: list[str], fill_columns: list[int]
 ) -> None:
+    def apply_gap_fill(gap_indexes: list[int], last_value: str, col_idx: int) -> None:
+        if not last_value or not gap_indexes or len(gap_indexes) > 5:
+            return
+        for gap_idx in gap_indexes:
+            gap_entry = clean_data[gap_idx]
+            if gap_entry.row[col_idx].strip():
+                continue
+            gap_entry.row[col_idx] = last_value
+            gap_entry.was_modified = True
+            gap_entry.needs_review = True
+            changelog.append(
+                Change(
+                    gap_entry.row_num,
+                    headers[col_idx],
+                    "",
+                    last_value,
+                    "Fixed",
+                    "Blank categorical cell forward-filled to repair a merged-cell style export gap",
+                )
+            )
+
     for col_idx in fill_columns:
         last_value = ""
         gap_indexes: list[int] = []
@@ -836,23 +925,7 @@ def forward_fill_merged_cell_gaps_generic(
 
             if cell_value:
                 if last_value and gap_indexes and len(gap_indexes) <= 5:
-                    for gap_idx in gap_indexes:
-                        gap_entry = clean_data[gap_idx]
-                        if gap_entry.row[col_idx].strip():
-                            continue
-                        gap_entry.row[col_idx] = last_value
-                        gap_entry.was_modified = True
-                        gap_entry.needs_review = True
-                        changelog.append(
-                            Change(
-                                gap_entry.row_num,
-                                headers[col_idx],
-                                "",
-                                last_value,
-                                "Fixed",
-                                "Blank categorical cell forward-filled to repair a merged-cell style export gap",
-                            )
-                        )
+                    apply_gap_fill(gap_indexes, last_value, col_idx)
                 last_value = cell_value
                 gap_indexes = []
                 continue
@@ -861,6 +934,8 @@ def forward_fill_merged_cell_gaps_generic(
                 gap_indexes.append(idx)
             else:
                 gap_indexes = []
+
+        apply_gap_fill(gap_indexes, last_value, col_idx)
 
 
 def forward_fill_merged_cell_gaps(clean_data: list[CleanRow], changelog: list[Change]) -> None:

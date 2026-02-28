@@ -39,6 +39,22 @@ class HealEdgeCaseTests(unittest.TestCase):
         self.assertEqual(len(changes), 2)
         self.assertTrue(all(change.column_affected == "[file metadata]" for change in changes))
 
+    def test_preprocess_rows_merges_multirow_header_band(self):
+        rows = [
+            ["Employee Expense Report - Q3 2023", "", "", "", "", "", "", ""],
+            ["Employee", "", "Transaction", "", "", "Approval", "", ""],
+            ["Name", "Division", "Date", "Cost", "Curr", "State", "Comments", ""],
+            ["ada lovelace", "finance", "15/01/2023", "$1,200 USD", "", "approved", "Taxi", ""],
+        ]
+
+        trimmed, changes = self.heal.preprocess_rows(rows)
+
+        self.assertEqual(trimmed[0][0], "Employee Name")
+        self.assertEqual(trimmed[0][1], "Employee Division")
+        self.assertEqual(trimmed[0][2], "Transaction Date")
+        self.assertEqual(trimmed[0][5], "Approval State")
+        self.assertTrue(any(change.column_affected == "[header band]" for change in changes))
+
     def test_formula_rows_are_quarantined(self):
         rows = [
             self.heal.HEADERS,
@@ -247,6 +263,32 @@ class HealEdgeCaseTests(unittest.TestCase):
             self.assertEqual(result["clean_data"][1].row[4], "EUR")
             self.assertTrue(output_path.exists())
             self.assertTrue(any("File Metadata" in change.reason for change in result["changelog"]))
+
+    def test_execute_healing_semantic_mode_on_workbook_with_stacked_headers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "stacked_header_workbook.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Transactions"
+            ws.append(["Employee Expense Report - Q3 2023", "", "", "", "", "", "", ""])
+            ws.append(["Employee", "", "Transaction", "", "", "Approval", "", ""])
+            ws.append(["Name", "Division", "Date", "Cost", "Curr", "State", "Comments", ""])
+            ws.append(["ada lovelace", "finance", "15/01/2023", "$1,200 USD", "", "approved", "Taxi", ""])
+            ws.append(["grace hopper", "", "2023-01-16T00:00:00Z", "", "EUR 99.5", "pending review", "Client lunch", ""])
+            wb.save(path)
+
+            result = self.heal.execute_healing(path, sheet_name="Transactions")
+
+            self.assertEqual(result["mode"], "semantic")
+            self.assertEqual(result["headers"][0], "Employee Name")
+            self.assertEqual(result["headers"][2], "Transaction Date")
+            self.assertEqual(result["clean_data"][0].row[0], "Ada Lovelace")
+            self.assertEqual(result["clean_data"][0].row[2], "2023-01-15")
+            self.assertEqual(result["clean_data"][0].row[3], "1200.00")
+            self.assertEqual(result["clean_data"][0].row[4], "USD")
+            self.assertEqual(result["clean_data"][1].row[1], "Finance")
+            self.assertEqual(result["clean_data"][1].row[4], "EUR")
+            self.assertTrue(any(change.column_affected == "[header band]" for change in result["changelog"]))
 
 
 if __name__ == "__main__":

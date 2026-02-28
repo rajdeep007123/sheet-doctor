@@ -78,6 +78,7 @@ Workbook-semantic behavior:
 - workbook inputs now preserve raw worksheet rows during healing instead of rebuilding rows from pandas headers
 - leading report/preamble rows in workbooks can now be detected as metadata before semantic role inference runs
 - semantic mode can now recover workbook tables with pre-header bands plus non-exact headers such as `Emp Name`, `Txn Date`, `Cost`, and `Approval State`
+- stacked workbook header bands can now be merged into one semantic header row before normalization
 
 Deployable machine outputs:
 - JSON-producing scripts now emit `contract`, `schema_version`, `tool_version`, and `run_summary`

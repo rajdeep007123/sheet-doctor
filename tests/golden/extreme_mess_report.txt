@@ -12,7 +12,7 @@ SECTION 2 — HEALTH SCORE
 🛟 Recoverability Score: 84/100 (Good — a few issues to address)
 ✨ Post-Heal Score: 95/100 (Excellent — minor cleanup only)
   • Raw deductions — Encoding: -10, Structural: -30, Date chaos: -5, Missing data: -3, Duplicates: -10, Data quality: -10
-  • Healing projection — Clean rows: 40, Quarantine rows: 5, Needs review: 8, Fixed changes: 99
+  • Healing projection — Clean rows: 40, Quarantine rows: 5, Needs review: 8, Fixed changes: 105
 
 ⚠️ This file appears to contain PII. Handle according to your data protection policy.
 

@@ -53,6 +53,7 @@ first because the later items depend on them or matter less to user trust.
   - Status:
     - workbook healing now preserves raw worksheet rows so preambles and true headers survive into semantic detection
     - workbook inputs with leading metadata rows and non-exact headers now heal in `semantic` mode in the tested path
+    - stacked workbook header bands are now merged into one semantic header row in the tested path
 
 - [x] Post-heal scoring and recoverability reporting
   - Current behavior: report score reflects raw-file damage only.
