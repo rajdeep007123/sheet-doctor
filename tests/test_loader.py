@@ -10,7 +10,7 @@ from unittest import mock
 from openpyxl import Workbook
 
 
-REPO_ROOT = Path("/Users/razzo/Documents/For Codex/sheet-doctor")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 LOADER_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "loader.py"
 
 

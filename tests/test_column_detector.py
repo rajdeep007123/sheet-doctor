@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 
-REPO_ROOT = Path("/Users/razzo/Documents/For Codex/sheet-doctor")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 LOADER_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "loader.py"
 DETECTOR_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "column_detector.py"
 EXTREME_MESS_PATH = REPO_ROOT / "sample-data" / "extreme_mess.csv"

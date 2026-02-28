@@ -144,6 +144,7 @@
     },
     "score": 32
   },
+  "input_file": "<INPUT_FILE>",
   "issues": {
     "critical": [
       {
@@ -1321,6 +1322,7 @@
       },
       "file": "extreme_mess.csv",
       "healing_mode_candidate": "schema-specific",
+      "input_file": "<INPUT_FILE>",
       "issues": [
         {
           "auto_fixable": true,

@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 
-REPO_ROOT = Path("/Users/razzo/Documents/For Codex/sheet-doctor")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORTER_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "reporter.py"
 LOADER_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "loader.py"
 EXTREME_MESS_PATH = REPO_ROOT / "sample-data" / "extreme_mess.csv"
@@ -120,7 +120,9 @@ class ReporterTests(unittest.TestCase):
         payload = deepcopy(report)
         payload["file_overview"]["scanned_at"] = "<TIMESTAMP>"
         payload["run_summary"]["generated_at"] = "<TIMESTAMP>"
+        payload["input_file"] = "<INPUT_FILE>"
         payload["source_reports"]["diagnose"]["run_summary"]["generated_at"] = "<TIMESTAMP>"
+        payload["source_reports"]["diagnose"]["input_file"] = "<INPUT_FILE>"
         payload["text_report"] = cls.normalise_text_report(payload["text_report"])
         return payload
 

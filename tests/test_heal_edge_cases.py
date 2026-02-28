@@ -7,7 +7,7 @@ from pathlib import Path
 from openpyxl import Workbook
 
 
-REPO_ROOT = Path("/Users/razzo/Documents/For Codex/sheet-doctor")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 HEAL_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "heal.py"
 
 
