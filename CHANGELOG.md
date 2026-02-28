@@ -59,6 +59,10 @@ All notable changes to sheet-doctor are documented here.
   - Semantic mode normalizes alternate headers and now covers workbook sheet selection / consolidation entry points
 
 ### Changed
+- **`csv-doctor` / `heal.py`** — workbook-semantic recovery improved:
+  - Workbook inputs now preserve raw worksheet rows during healing instead of rebuilding rows from DataFrame headers
+  - This keeps workbook preambles, metadata bands, and true header rows visible to semantic/header detection
+  - Semantic mode now covers workbook-style inputs with leading report rows and non-exact headers rather than dropping straight to generic cleanup
 - **`csv-doctor` / `diagnose.py`** — now emits deployable contract metadata:
   - Added `contract`, `schema_version`, `tool_version`, and `run_summary`
   - Exposes `degraded_mode` from the loader in the JSON report when active
@@ -70,6 +74,7 @@ All notable changes to sheet-doctor are documented here.
 - **`excel-doctor` / `diagnose.py`** — now builds a reusable report object with stable contract metadata and `run_summary`
 - **`excel-doctor` / `heal.py`** — now supports `--json-summary <path>` and reusable structured post-heal summaries
 - **`tests/test_reporter.py`** — now includes golden snapshot regression coverage for the plain-text and JSON reporter outputs
+- **`tests/test_heal_edge_cases.py`** — now covers workbook-semantic healing with preserved preamble rows and semantic normalization on workbook inputs
 - **`csv-doctor` / `loader.py`** — Phase 4 operational hardening:
   - Added large-file guardrails with explicit warning, degraded-mode, and hard-stop thresholds for risky in-memory loads
   - Result payloads now expose `degraded_mode` so callers and the UI can react explicitly to risky inputs

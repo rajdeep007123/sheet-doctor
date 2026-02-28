@@ -50,6 +50,9 @@ first because the later items depend on them or matter less to user trust.
     - semantic mode works on workbook-derived tables with preambles, ragged layouts,
       and non-exact headers
     - recover date/amount/status/category semantics when confidence is high enough
+  - Status:
+    - workbook healing now preserves raw worksheet rows so preambles and true headers survive into semantic detection
+    - workbook inputs with leading metadata rows and non-exact headers now heal in `semantic` mode in the tested path
 
 - [x] Post-heal scoring and recoverability reporting
   - Current behavior: report score reflects raw-file damage only.

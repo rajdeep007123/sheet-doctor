@@ -36,6 +36,7 @@ More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 - ✅ `.github/workflows/ci.yml` — reproducible CI checks across supported Python versions
 - ✅ `schemas/` — versioned JSON contract docs for deployable machine outputs
 - ✅ `pyproject.toml` — package/release metadata with optional extras for `.xls` and `.ods`
+- ✅ workbook-semantic healing — workbook preambles and non-exact workbook headers now flow through semantic mode instead of flattening into generic cleanup
 
 ## Architecture
 
@@ -72,6 +73,11 @@ Healing modes:
 - `schema-specific` when the canonical 8-column finance/export shape is detected
 - `semantic` when non-exact headers still strongly map to roles like name/date/amount/currency/status
 - `generic` when only structural cleanup is safe
+
+Workbook-semantic behavior:
+- workbook inputs now preserve raw worksheet rows during healing instead of rebuilding rows from pandas headers
+- leading report/preamble rows in workbooks can now be detected as metadata before semantic role inference runs
+- semantic mode can now recover workbook tables with pre-header bands plus non-exact headers such as `Emp Name`, `Txn Date`, `Cost`, and `Approval State`
 
 Deployable machine outputs:
 - JSON-producing scripts now emit `contract`, `schema_version`, `tool_version`, and `run_summary`

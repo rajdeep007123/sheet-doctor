@@ -327,16 +327,111 @@ def read_file(
         # are reconstructed correctly (same behaviour as the old read_mixed_encoding).
         rows = list(csv.reader(io.StringIO(raw_text), delimiter=delimiter))
     else:
-        # Binary/structured format (Excel, ODS, JSON…): convert the DataFrame
-        # back to rows so the rest of the pipeline is format-agnostic.
-        df        = result["dataframe"]
+        # Structured/binary formats: preserve actual workbook rows for healing.
+        # Reconstructing from DataFrame headers loses workbook preambles and
+        # misclassifies real header rows when metadata bands precede the table.
+        suffix = path.suffix.lower()
         delimiter = ","
-        rows      = [list(df.columns)] + [
-            [str(v) if v is not None else "" for v in row]
-            for row in df.itertuples(index=False, name=None)
-        ]
+        if suffix in {".xlsx", ".xlsm"}:
+            workbook = openpyxl.load_workbook(path, data_only=False)
+            if consolidate_sheets:
+                rows = _read_openpyxl_rows_consolidated(workbook, result.get("sheet_names") or workbook.sheetnames)
+            else:
+                active_sheet = result.get("sheet_name")
+                if not active_sheet or str(active_sheet).startswith("[all "):
+                    active_sheet = workbook.sheetnames[0]
+                rows = _read_openpyxl_rows(workbook[active_sheet])
+        elif suffix in {".xls", ".ods"}:
+            rows = _read_spreadsheet_rows_with_pandas(
+                path,
+                suffix=suffix,
+                sheet_name=None if consolidate_sheets else result.get("sheet_name"),
+                all_sheets=result.get("sheet_names"),
+                consolidate_sheets=bool(consolidate_sheets),
+            )
+        else:
+            # JSON and other structured formats do not have workbook-style preambles,
+            # so DataFrame reconstruction remains acceptable here.
+            df = result["dataframe"]
+            rows = [list(df.columns)] + [
+                [str(v) if v is not None else "" for v in row]
+                for row in df.itertuples(index=False, name=None)
+            ]
 
     return rows, delimiter or ","
+
+
+def _trim_trailing_empty_cells(row: list[str]) -> list[str]:
+    trimmed = list(row)
+    while trimmed and not str(trimmed[-1]).strip():
+        trimmed.pop()
+    return trimmed
+
+
+def _normalise_row_cells(values) -> list[str]:
+    row = ["" if value is None else str(value) for value in values]
+    return _trim_trailing_empty_cells(row)
+
+
+def _read_openpyxl_rows(sheet) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for values in sheet.iter_rows(values_only=True):
+        rows.append(_normalise_row_cells(values))
+    return rows
+
+
+def _read_openpyxl_rows_consolidated(workbook, sheet_names: list[str]) -> list[list[str]]:
+    all_rows: list[list[str]] = []
+    header_added = False
+    for name in sheet_names:
+        sheet_rows = _read_openpyxl_rows(workbook[name])
+        if not sheet_rows:
+            continue
+        if not header_added:
+            all_rows.extend(sheet_rows)
+            header_added = True
+        else:
+            all_rows.extend(sheet_rows[1:])
+    return all_rows
+
+
+def _read_spreadsheet_rows_with_pandas(
+    path: Path,
+    *,
+    suffix: str,
+    sheet_name: str | None,
+    all_sheets: list[str] | None,
+    consolidate_sheets: bool,
+) -> list[list[str]]:
+    engine = "odf" if suffix == ".ods" else None
+    read_kwargs = {"header": None, "dtype": str}
+    if engine:
+        read_kwargs["engine"] = engine
+
+    def frame_to_rows(df: pd.DataFrame) -> list[list[str]]:
+        return [
+            _trim_trailing_empty_cells(["" if value is None else str(value) for value in row])
+            for row in df.fillna("").itertuples(index=False, name=None)
+        ]
+
+    if consolidate_sheets:
+        rows: list[list[str]] = []
+        names = all_sheets or []
+        header_added = False
+        for name in names:
+            df = pd.read_excel(path, sheet_name=name, **read_kwargs)
+            sheet_rows = frame_to_rows(df)
+            if not sheet_rows:
+                continue
+            if not header_added:
+                rows.extend(sheet_rows)
+                header_added = True
+            else:
+                rows.extend(sheet_rows[1:])
+        return rows
+
+    df = pd.read_excel(path, sheet_name=sheet_name, **read_kwargs)
+    return frame_to_rows(df)
 
 
 # ══════════════════════════════════════════════════════════════════════════
