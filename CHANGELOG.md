@@ -34,8 +34,17 @@ All notable changes to sheet-doctor are documented here.
   - Combined amount/currency values are split correctly
   - Notes rows and subtotal rows are quarantined with explicit reasons
   - Merged-cell style blank runs are forward-filled in categorical columns
+  - Semantic mode normalizes alternate headers and now covers workbook sheet selection / consolidation entry points
 
 ### Changed
+- **`csv-doctor` / `heal.py`** — Phase 1 + 2 production hardening:
+  - Shared row-accounting and normalized issue reporting now keep `diagnose.py` and `reporter.py` aligned on raw vs parsed row counts
+  - Semantic healing mode now handles non-exact headers by inferring likely `name`, `date`, `amount`, `currency`, `status`, `department`, `category`, and `notes` columns
+  - Header detection was tightened so real tabular rows are less likely to be misclassified as pre-header metadata
+- **`csv-doctor` / `heal.py`** — workbook CLI hardening:
+  - Added `--sheet <name>` to heal an explicitly selected workbook sheet
+  - Added `--all-sheets` to consolidate compatible sheets before healing
+  - Hardened workbook preprocessing so numeric/no-header sheets no longer crash the healer
 - **`requirements.txt`** — added `streamlit` and `requests` for the local UI layer and public-file URL imports
 - **`csv-doctor` / `diagnose.py`** — now embeds `column_semantics` in the main JSON health report:
   - Includes per-column inferred types, quality stats, and suspected issues alongside the existing structural diagnostics

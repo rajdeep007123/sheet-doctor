@@ -9,7 +9,7 @@ Reads a messy CSV and writes a 3-sheet Excel workbook:
   Sheet 3 — "Change Log"    one entry per individual change made
 
 Usage:
-    python skills/csv-doctor/scripts/heal.py [input.csv [output.xlsx]]
+    python skills/csv-doctor/scripts/heal.py [input.csv] [output.xlsx] [--sheet NAME | --all-sheets]
 
 Exit codes:
     0 — completed
@@ -18,6 +18,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import argparse
 import csv
 import io
 import re
@@ -119,23 +120,30 @@ ROLE_HEADER_HINTS = {
 }
 
 
-def _strip_nulls(value: str) -> str:
-    return value.replace("\x00", "")
+def _strip_nulls(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).replace("\x00", "")
 
 
 def _non_empty_cells(row: list[str]) -> list[str]:
-    return [cell.strip() for cell in row if _strip_nulls(cell).strip()]
+    cells = []
+    for cell in row:
+        cleaned = _strip_nulls(cell).strip()
+        if cleaned:
+            cells.append(cleaned)
+    return cells
 
 
 def _joined_row_text(row: list[str]) -> str:
-    return " | ".join(cell.strip() for cell in row if _strip_nulls(cell).strip())
+    return " | ".join(_strip_nulls(cell).strip() for cell in row if _strip_nulls(cell).strip())
 
 
 def _looks_like_header_row(row: list[str]) -> bool:
     if is_schema_specific_header(row):
         return True
 
-    non_empty = [cell.strip() for cell in row if _strip_nulls(cell).strip()]
+    non_empty = [_strip_nulls(cell).strip() for cell in row if _strip_nulls(cell).strip()]
     if len(non_empty) < 2:
         return False
     if any(FORMULA_RE.match(cell) for cell in non_empty):
@@ -167,11 +175,17 @@ def _looks_like_header_row(row: list[str]) -> bool:
 
 def detect_header_row_index(all_rows: list[list[str]]) -> int:
     search_rows = all_rows[:10]
-    exact_matches = [idx for idx, row in enumerate(search_rows) if is_schema_specific_header(row)]
+    exact_matches = [
+        idx for idx, row in enumerate(search_rows)
+        if is_schema_specific_header(row) and idx < len(all_rows) - 1
+    ]
     if exact_matches:
         return exact_matches[-1]
 
-    generic_candidates = [idx for idx, row in enumerate(search_rows) if _looks_like_header_row(row)]
+    generic_candidates = [
+        idx for idx, row in enumerate(search_rows)
+        if idx < len(all_rows) - 1 and _looks_like_header_row(row)
+    ]
     if generic_candidates:
         return generic_candidates[-1]
     return 0
@@ -285,7 +299,12 @@ def extract_currency_from_text(value: str) -> tuple[str | None, str | None]:
 # STEP 1 — Read with mixed-encoding tolerance (via loader)
 # ══════════════════════════════════════════════════════════════════════════
 
-def read_file(path: Path) -> tuple[list[list[str]], str]:
+def read_file(
+    path: Path,
+    *,
+    sheet_name: str | None = None,
+    consolidate_sheets: bool | None = None,
+) -> tuple[list[list[str]], str]:
     """
     Load any supported file format via loader.load_file().
 
@@ -293,7 +312,7 @@ def read_file(path: Path) -> tuple[list[list[str]], str]:
     raw_rows are reconstructed from the DataFrame so the rest of the
     processing pipeline stays unchanged.
     """
-    result    = load_file(path)
+    result    = load_file(path, sheet_name=sheet_name, consolidate_sheets=consolidate_sheets)
     raw_text  = result["raw_text"]
     delimiter = result["delimiter"]
 
@@ -414,9 +433,9 @@ SMART_QUOTES = {
     "\u2018": "'", "\u2019": "'",   # '' single curly / smart apostrophe
 }
 
-def _clean_cell_text(value: str) -> tuple[str, list[str]]:
+def _clean_cell_text(value: object) -> tuple[str, list[str]]:
     """Strip BOM, null bytes, line breaks, smart quotes. Returns (cleaned_value, reasons)."""
-    new_val = value
+    new_val = _strip_nulls(value)
     reasons = []
 
     if "\ufeff" in new_val:
@@ -1634,15 +1653,35 @@ def is_schema_specific_header(header_row: list[str]) -> bool:
     return cleaned == expected
 
 
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Heal messy tabular files into a 3-sheet Excel workbook.")
+    parser.add_argument("input", nargs="?", default=str(INPUT), help="Input file path")
+    parser.add_argument("output", nargs="?", default=str(OUTPUT), help="Output .xlsx path")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--sheet", dest="sheet_name", help="Workbook sheet name to heal")
+    group.add_argument(
+        "--all-sheets",
+        dest="all_sheets",
+        action="store_true",
+        help="Consolidate all sheets before healing (only when columns are compatible)",
+    )
+    return parser.parse_args(argv)
+
+
 def main():
-    input_path  = Path(sys.argv[1]) if len(sys.argv) > 1 else INPUT
-    output_path = Path(sys.argv[2]) if len(sys.argv) > 2 else OUTPUT
+    args = parse_args(sys.argv[1:])
+    input_path = Path(args.input)
+    output_path = Path(args.output)
 
     if not input_path.exists():
         print(f"ERROR: File not found: {input_path}", file=sys.stderr)
         sys.exit(1)
 
-    all_rows, delimiter = read_file(input_path)
+    all_rows, delimiter = read_file(
+        input_path,
+        sheet_name=args.sheet_name,
+        consolidate_sheets=True if args.all_sheets else None,
+    )
     if len(all_rows) < 2:
         print("ERROR: File is empty or has only a header.", file=sys.stderr)
         sys.exit(1)

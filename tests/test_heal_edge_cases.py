@@ -1,7 +1,10 @@
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+from openpyxl import Workbook
 
 
 REPO_ROOT = Path("/Users/razzo/Documents/For Codex/sheet-doctor")
@@ -142,6 +145,53 @@ class HealEdgeCaseTests(unittest.TestCase):
         self.assertEqual(clean[1].row[1], "Finance")
         self.assertEqual(clean[2].row[1], "Finance")
         self.assertTrue(any(change.column_affected == "Division" for change in changelog))
+
+    def test_read_file_accepts_explicit_sheet_name_for_multisheet_workbooks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "multi.xlsx"
+            wb = Workbook()
+            ws1 = wb.active
+            ws1.title = "Primary"
+            ws1.append(["name", "score"])
+            ws1.append(["Ada", 10])
+            ws2 = wb.create_sheet("Backup")
+            ws2.append(["name", "score"])
+            ws2.append(["Grace", 11])
+            wb.save(path)
+
+            rows, delimiter = self.heal.read_file(path, sheet_name="Backup")
+
+            self.assertEqual(delimiter, ",")
+            self.assertEqual(rows[0], ["name", "score"])
+            self.assertEqual(rows[1], ["Grace", "11"])
+
+    def test_parse_args_supports_all_sheets_flag(self):
+        args = self.heal.parse_args(["input.xlsx", "output.xlsx", "--all-sheets"])
+
+        self.assertEqual(args.input, "input.xlsx")
+        self.assertEqual(args.output, "output.xlsx")
+        self.assertTrue(args.all_sheets)
+        self.assertIsNone(args.sheet_name)
+
+    def test_read_file_can_consolidate_multisheet_workbooks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "multi.xlsx"
+            wb = Workbook()
+            ws1 = wb.active
+            ws1.title = "Q1"
+            ws1.append(["name", "score"])
+            ws1.append(["Ada", 10])
+            ws2 = wb.create_sheet("Q2")
+            ws2.append(["name", "score"])
+            ws2.append(["Grace", 11])
+            wb.save(path)
+
+            rows, delimiter = self.heal.read_file(path, consolidate_sheets=True)
+
+            self.assertEqual(delimiter, ",")
+            self.assertEqual(rows[0], ["name", "score"])
+            self.assertEqual(rows[1], ["Ada", "10"])
+            self.assertEqual(rows[2], ["Grace", "11"])
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 | `csv-doctor` | `loader.py` | Universal file loader — reads `.csv .tsv .txt .xlsx .xls .xlsm .ods .json .jsonl` into a pandas DataFrame with encoding detection, delimiter sniffing, and explicit multi-sheet handling |
 | `csv-doctor` | `diagnose.py` | Structural diagnostics plus column semantics: encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers, inferred column types, per-column quality stats, suspected issues |
 | `csv-doctor` | `column_detector.py` | Standalone per-column semantic inference and quality profiling for messy tabular data, even when headers are weak or wrong |
-| `csv-doctor` | `heal.py` | Schema-aware healing (generic + finance mode) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) with edge-case handling for formula residue, notes rows, subtotal rows, metadata/header rows, merged-cell export gaps, and misplaced currency values |
+| `csv-doctor` | `heal.py` | Schema-aware healing (`schema-specific`, `semantic`, `generic`) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) with edge-case handling for formula residue, notes rows, subtotal rows, metadata/header rows, merged-cell export gaps, misplaced currency values, and explicit workbook sheet selection |
 | `excel-doctor` | `diagnose.py` | Deep Excel diagnostics: sheet inventory, merged cells, formula errors/cache misses, mixed types, duplicate/whitespace headers, structural rows, sparse columns |
 | `excel-doctor` | `heal.py` | Safe workbook fixes: unmerge ranges, standardise/dedupe headers, clean text/date values, remove empty rows, append Change Log |
 | `web` | `app.py` | Local Streamlit UI — upload files or paste public file URLs, describe what you want, preview the table, and download a human-readable workbook |
@@ -57,6 +57,11 @@ In practice:
 - `SKILL.md` tells Claude when to invoke the workflow
 - `skills/csv-doctor/README.md` documents the subsystem for developers
 
+Healing modes:
+- `schema-specific` when the canonical 8-column finance/export shape is detected
+- `semantic` when non-exact headers still strongly map to roles like name/date/amount/currency/status
+- `generic` when only structural cleanup is safe
+
 ---
 
 ## Supported file formats
@@ -78,6 +83,10 @@ In practice:
 For files with **mixed encodings** (Latin-1 and UTF-8 bytes on different rows), the loader decodes line-by-line and never crashes.
 
 For **Excel/ODS files with multiple sheets**, the loader prompts you to pick a sheet in interactive sessions. In non-interactive/API use, it requires `sheet_name=...` or `consolidate_sheets=True` and raises a clear error listing the available sheets.
+
+`csv-doctor/heal.py` now exposes that workbook choice at the CLI layer:
+- `--sheet <name>` to heal one workbook sheet
+- `--all-sheets` to consolidate compatible sheets before healing
 
 ---
 
@@ -208,6 +217,12 @@ python skills/csv-doctor/scripts/reporter.py sample-data/extreme_mess.csv
 
 # Fix it — outputs extreme_mess_healed.xlsx with 3 sheets
 python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv
+
+# Heal one workbook sheet explicitly
+python skills/csv-doctor/scripts/heal.py /path/to/workbook.xlsx /tmp/healed.xlsx --sheet "Visible"
+
+# Consolidate compatible workbook sheets before healing
+python skills/csv-doctor/scripts/heal.py /path/to/workbook.xlsx /tmp/healed.xlsx --all-sheets
 ```
 
 Recent `csv-doctor/heal.py` edge-case coverage:
@@ -217,6 +232,8 @@ Recent `csv-doctor/heal.py` edge-case coverage:
 - Quarantines long single-cell prose rows as `Appears to be a notes row`
 - Repairs merged-cell style export gaps in categorical columns with logged forward-fill changes
 - Splits combined values like `$1,200 USD` into `Amount` + `Currency`
+- Uses semantic role inference to normalize non-exact headers such as `Emp Name`, `Txn Date`, `Cost`, `Curr`, and `Approval State`
+- Accepts `--sheet` / `--all-sheets` for workbook inputs so multi-sheet files do not fail at the CLI boundary
 - Reporter adds a PII warning when likely names, emails, phones, or national-ID-like values are detected
 
 **`messy_sample.xlsx`** — broken Excel workbook with hidden sheets, merged cells, formula errors, and mixed column types.
