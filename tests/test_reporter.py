@@ -108,9 +108,15 @@ class ReporterTests(unittest.TestCase):
 
     @staticmethod
     def normalise_text_report(text: str) -> str:
-        return re.sub(
+        text = re.sub(
             r"^⏱  Scanned: .+$",
             "⏱  Scanned: <TIMESTAMP>",
+            text,
+            flags=re.MULTILINE,
+        )
+        return re.sub(
+            r"^🔤 Encoding: .+$",
+            "🔤 Encoding: <DETECTED_ENCODING>",
             text,
             flags=re.MULTILINE,
         )
@@ -119,8 +125,11 @@ class ReporterTests(unittest.TestCase):
     def normalise_report_json(cls, report: dict) -> dict:
         payload = deepcopy(report)
         payload["file_overview"]["scanned_at"] = "<TIMESTAMP>"
+        payload["file_overview"]["encoding"] = "<DETECTED_ENCODING>"
         payload["run_summary"]["generated_at"] = "<TIMESTAMP>"
         payload["input_file"] = "<INPUT_FILE>"
+        payload["source_reports"]["diagnose"]["detected_encoding"] = "<DETECTED_ENCODING>"
+        payload["source_reports"]["diagnose"]["encoding"]["detected"] = "<DETECTED_ENCODING>"
         payload["source_reports"]["diagnose"]["run_summary"]["generated_at"] = "<TIMESTAMP>"
         payload["source_reports"]["diagnose"]["input_file"] = "<INPUT_FILE>"
         payload["text_report"] = cls.normalise_text_report(payload["text_report"])

@@ -4,7 +4,7 @@ SECTION 1 — FILE OVERVIEW
 🧾 Parsed cleanly: 46 rows
 🧯 Malformed rows: 8 | Skipped by parser: 5
 💾 Format: csv
-🔤 Encoding: MacRoman
+🔤 Encoding: <DETECTED_ENCODING>
 ⏱  Scanned: <TIMESTAMP>
 
 SECTION 2 — HEALTH SCORE
