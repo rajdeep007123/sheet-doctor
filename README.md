@@ -88,7 +88,17 @@ Healing modes:
 
 For files with **mixed encodings** (Latin-1 and UTF-8 bytes on different rows), the loader decodes line-by-line and never crashes.
 
+For **large inputs**, the loader now applies explicit safety rails:
+- warns on large file sizes and row counts before processing becomes risky
+- enters a visible `degraded_mode` when the file is likely to be slow or memory-heavy
+- rejects files beyond hard in-memory safety limits with a clear error instead of crashing unpredictably
+
 For **Excel/ODS files with multiple sheets**, the loader prompts you to pick a sheet in interactive sessions. In non-interactive/API use, it requires `sheet_name=...` or `consolidate_sheets=True` and raises a clear error listing the available sheets.
+
+For **optional dependencies and corrupt workbook files**, the loader now fails more cleanly:
+- missing `xlrd` for `.xls` raises a clear `ImportError`
+- missing `odfpy` for `.ods` raises a clear `ImportError`
+- corrupt workbook opens are wrapped so parser/library spew does not leak into user-facing output
 
 `csv-doctor/heal.py` now exposes that workbook choice at the CLI layer:
 - `--sheet <name>` to heal one workbook sheet

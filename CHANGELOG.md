@@ -37,6 +37,11 @@ All notable changes to sheet-doctor are documented here.
   - Semantic mode normalizes alternate headers and now covers workbook sheet selection / consolidation entry points
 
 ### Changed
+- **`csv-doctor` / `loader.py`** — Phase 4 operational hardening:
+  - Added large-file guardrails with explicit warning, degraded-mode, and hard-stop thresholds for risky in-memory loads
+  - Result payloads now expose `degraded_mode` so callers and the UI can react explicitly to risky inputs
+  - Missing optional dependencies now fail with clearer import contracts for `.xls` (`xlrd`) and `.ods` (`odfpy`)
+  - Corrupt workbook open failures are now wrapped more quietly so parser noise does not leak into user-facing stderr/stdout
 - **`csv-doctor` / `reporter.py`** — Phase 3 scoring and action planning:
   - Added `raw_health_score` for the original file, `recoverability_score` based on the actual clean/quarantine split, and `post_heal_score` for the cleaned output only
   - Kept `health_score` as a backward-compatible alias of the raw score for older consumers

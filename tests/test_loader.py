@@ -1,6 +1,8 @@
 import importlib.util
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Optional
 from unittest import mock
@@ -40,6 +42,64 @@ class LoaderLocalBehaviorTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "does not appear to contain delimited/tabular data"):
                 self.loader.load_file(path)
+
+    def test_missing_xlrd_raises_clear_importerror(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "legacy.xls"
+            path.write_bytes(b"not-a-real-xls")
+
+            original_import = __import__
+
+            def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+                if name == "xlrd":
+                    raise ImportError("simulated missing xlrd")
+                return original_import(name, globals, locals, fromlist, level)
+
+            with mock.patch("builtins.__import__", side_effect=fake_import):
+                with self.assertRaisesRegex(ImportError, r"\.xls files require xlrd"):
+                    self.loader.load_file(path)
+
+    def test_missing_odfpy_raises_clear_importerror(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "sheet.ods"
+            path.write_bytes(b"not-a-real-ods")
+
+            original_import = __import__
+
+            def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+                if name == "odf":
+                    raise ImportError("simulated missing odf")
+                return original_import(name, globals, locals, fromlist, level)
+
+            with mock.patch("builtins.__import__", side_effect=fake_import):
+                with self.assertRaisesRegex(ImportError, r"\.ods files require odfpy"):
+                    self.loader.load_file(path)
+
+    def test_large_text_inputs_emit_degraded_mode_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "large.csv"
+            path.write_text("name,value\nAda,10\nGrace,11\n", encoding="utf-8")
+
+            with mock.patch.object(self.loader, "LARGE_FILE_WARNING_BYTES", 1), \
+                 mock.patch.object(self.loader, "LARGE_FILE_DEGRADED_BYTES", 1), \
+                 mock.patch.object(self.loader, "LARGE_FILE_HARD_LIMIT_BYTES", 10_000), \
+                 mock.patch.object(self.loader, "LARGE_ROW_WARNING_COUNT", 1_000), \
+                 mock.patch.object(self.loader, "LARGE_ROW_DEGRADED_COUNT", 2_000), \
+                 mock.patch.object(self.loader, "LARGE_ROW_HARD_LIMIT_COUNT", 10_000):
+                result = self.loader.load_file(path)
+
+            self.assertTrue(result["degraded_mode"]["active"])
+            self.assertTrue(any("Degraded mode active" in warning for warning in result["warnings"]))
+            self.assertTrue(any("Large file size" in reason for reason in result["degraded_mode"]["reasons"]))
+
+    def test_hard_limit_rejects_oversized_input(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "tiny.csv"
+            path.write_text("a,b\n1,2\n", encoding="utf-8")
+
+            with mock.patch.object(self.loader, "LARGE_FILE_HARD_LIMIT_BYTES", 1):
+                with self.assertRaisesRegex(ValueError, "too large for safe in-memory processing"):
+                    self.loader.load_file(path)
 
     def test_multisheet_xlsx_requires_explicit_selection_noninteractive(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -245,6 +305,19 @@ class LoaderPublicCorpusTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Could not open workbook"):
             self.loader.load_file(self.corrupt_xls_path)
+
+    def test_public_corrupt_xls_does_not_leak_parser_noise(self):
+        if self.corrupt_xls_path is None:
+            self.skipTest("public corrupt XLS fixture not available")
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with self.assertRaisesRegex(ValueError, "Could not open workbook"):
+                self.loader.load_file(self.corrupt_xls_path)
+
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":

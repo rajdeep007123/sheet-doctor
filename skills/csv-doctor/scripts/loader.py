@@ -20,12 +20,14 @@ Result dict keys:
     original_rows     — row count including header row
     original_columns  — column count
     row_accounting    — raw-vs-parsed row counts and malformed-row details
+    degraded_mode     — dict: active flag plus reasons when risky size/row thresholds trigger
     warnings          — list of warning strings
 """
 
 from __future__ import annotations
 
 import csv
+import contextlib
 import io
 import json as _json
 import sys
@@ -39,6 +41,13 @@ ODS_FORMATS   = {".ods"}
 JSON_FORMATS  = {".json"}
 JSONL_FORMATS = {".jsonl"}
 ALL_FORMATS   = TEXT_FORMATS | EXCEL_FORMATS | ODS_FORMATS | JSON_FORMATS | JSONL_FORMATS
+
+LARGE_FILE_WARNING_BYTES = 25 * 1024 * 1024
+LARGE_FILE_DEGRADED_BYTES = 100 * 1024 * 1024
+LARGE_FILE_HARD_LIMIT_BYTES = 250 * 1024 * 1024
+LARGE_ROW_WARNING_COUNT = 100_000
+LARGE_ROW_DEGRADED_COUNT = 500_000
+LARGE_ROW_HARD_LIMIT_COUNT = 1_000_000
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -222,6 +231,55 @@ def _build_row_accounting(
     }
 
 
+def _build_degraded_mode(reasons: list[str]) -> dict:
+    return {
+        "active": bool(reasons),
+        "reasons": reasons,
+    }
+
+
+def _append_size_guardrails(path: Path, warnings: list[str], degraded_reasons: list[str]) -> None:
+    size_bytes = path.stat().st_size
+    size_mb = round(size_bytes / (1024 * 1024), 1)
+
+    if size_bytes > LARGE_FILE_HARD_LIMIT_BYTES:
+        raise ValueError(
+            f"File is too large for safe in-memory processing ({size_mb} MB). "
+            f"Hard limit is {round(LARGE_FILE_HARD_LIMIT_BYTES / (1024 * 1024), 1)} MB."
+        )
+    if size_bytes >= LARGE_FILE_DEGRADED_BYTES:
+        degraded_reasons.append(
+            f"Large file size ({size_mb} MB) may cause slow or memory-heavy processing"
+        )
+    elif size_bytes >= LARGE_FILE_WARNING_BYTES:
+        warnings.append(
+            f"Large file warning: input is {size_mb} MB and may be slow to process in memory."
+        )
+
+
+def _append_row_guardrails(row_count: int, warnings: list[str], degraded_reasons: list[str]) -> None:
+    if row_count > LARGE_ROW_HARD_LIMIT_COUNT:
+        raise ValueError(
+            f"File has too many rows for safe in-memory processing ({row_count:,} rows). "
+            f"Hard limit is {LARGE_ROW_HARD_LIMIT_COUNT:,} rows."
+        )
+    if row_count >= LARGE_ROW_DEGRADED_COUNT:
+        degraded_reasons.append(
+            f"High row count ({row_count:,} rows) may cause slow or memory-heavy processing"
+        )
+    elif row_count >= LARGE_ROW_WARNING_COUNT:
+        warnings.append(
+            f"Large row-count warning: input has {row_count:,} rows and may be slow to process in memory."
+        )
+
+
+def _with_quiet_workbook_errors(func):
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+    with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+        return func()
+
+
 def _sheet_selection_message(
     all_sheets: list[str],
     same_columns: bool,
@@ -296,6 +354,10 @@ def _load_text(path: Path, suffix: str) -> dict:
     """Load .csv, .tsv, or .txt file into a pandas DataFrame."""
     import pandas as pd
 
+    warnings: list[str] = []
+    degraded_reasons: list[str] = []
+    _append_size_guardrails(path, warnings, degraded_reasons)
+
     raw      = path.read_bytes()
     enc_info = _detect_encoding_info(raw)
     enc      = enc_info["detected"] if enc_info["detected"] != "unknown" else "utf-8"
@@ -338,10 +400,14 @@ def _load_text(path: Path, suffix: str) -> dict:
         parsed_rows_total=len(df),
         malformed_rows=malformed_rows,
     )
-    warnings: list[str] = []
     if row_accounting["dropped_rows_total"] > 0:
         warnings.append(
             f"DataFrame parser skipped {row_accounting['dropped_rows_total']} data row(s); raw row counts are retained for reporting."
+        )
+    _append_row_guardrails(row_accounting["raw_data_rows_total"], warnings, degraded_reasons)
+    if degraded_reasons:
+        warnings.append(
+            "Degraded mode active: processing continues, but large inputs may be slow or memory-heavy."
         )
 
     return {
@@ -356,6 +422,7 @@ def _load_text(path: Path, suffix: str) -> dict:
         "original_rows":    len(raw_rows),
         "original_columns": expected_columns or len(df.columns),
         "row_accounting":   row_accounting,
+        "degraded_mode":    _build_degraded_mode(degraded_reasons),
         "warnings":         warnings,
     }
 
@@ -396,6 +463,8 @@ def _load_excel(
     import pandas as pd
 
     warnings: list[str] = []
+    degraded_reasons: list[str] = []
+    _append_size_guardrails(path, warnings, degraded_reasons)
 
     # .xls requires xlrd; give a clear error if missing.
     if suffix == ".xls":
@@ -407,7 +476,7 @@ def _load_excel(
             )
 
     try:
-        with pd.ExcelFile(path) as xf:
+        with _with_quiet_workbook_errors(lambda: pd.ExcelFile(path)) as xf:
             all_sheets = list(xf.sheet_names)
     except Exception as exc:
         raise ValueError(f"Could not open workbook: {exc}") from exc
@@ -452,7 +521,7 @@ def _load_excel(
         frames = []
         for name in all_sheets:
             try:
-                frames.append(pd.read_excel(path, sheet_name=name, dtype=str))
+                frames.append(_with_quiet_workbook_errors(lambda name=name: pd.read_excel(path, sheet_name=name, dtype=str)))
             except Exception as exc:
                 warnings.append(f"Could not load sheet '{name}': {exc}")
         if not frames:
@@ -462,7 +531,7 @@ def _load_excel(
         warnings.append(f"Consolidated {len(frames)} sheets into one table.")
     else:
         try:
-            df = pd.read_excel(path, sheet_name=chosen_name, dtype=str)
+            df = _with_quiet_workbook_errors(lambda: pd.read_excel(path, sheet_name=chosen_name, dtype=str))
         except Exception as exc:
             raise ValueError(
                 f"Could not load sheet '{chosen_name}': {exc}"
@@ -475,6 +544,12 @@ def _load_excel(
                 f"Multiple sheets found ({len(all_sheets)} total); "
                 f"used '{active_sheet}'. Ignored: {others}"
             )
+
+    _append_row_guardrails(len(df), warnings, degraded_reasons)
+    if degraded_reasons:
+        warnings.append(
+            "Degraded mode active: processing continues, but large inputs may be slow or memory-heavy."
+        )
 
     return {
         "dataframe":        df,
@@ -493,6 +568,7 @@ def _load_excel(
             parsed_rows_total=len(df),
             malformed_rows=[],
         ),
+        "degraded_mode":   _build_degraded_mode(degraded_reasons),
         "warnings":         warnings,
     }
 
@@ -517,6 +593,8 @@ def _load_ods(
         )
 
     warnings: list[str] = []
+    degraded_reasons: list[str] = []
+    _append_size_guardrails(path, warnings, degraded_reasons)
 
     try:
         with pd.ExcelFile(path, engine="odf") as xf:
@@ -578,6 +656,12 @@ def _load_ods(
             raise ValueError(f"Could not load sheet '{chosen_name}': {exc}") from exc
         active_sheet = chosen_name
 
+    _append_row_guardrails(len(df), warnings, degraded_reasons)
+    if degraded_reasons:
+        warnings.append(
+            "Degraded mode active: processing continues, but large inputs may be slow or memory-heavy."
+        )
+
     return {
         "dataframe":        df,
         "detected_format":  "ods",
@@ -595,6 +679,7 @@ def _load_ods(
             parsed_rows_total=len(df),
             malformed_rows=[],
         ),
+        "degraded_mode":   _build_degraded_mode(degraded_reasons),
         "warnings":         warnings,
     }
 
@@ -611,6 +696,9 @@ def _load_json(path: Path) -> dict:
     import pandas as pd
 
     raw      = path.read_bytes()
+    warnings: list[str] = []
+    degraded_reasons: list[str] = []
+    _append_size_guardrails(path, warnings, degraded_reasons)
     enc_info = _detect_encoding_info(raw)
     enc      = enc_info["detected"] if enc_info["detected"] != "unknown" else "utf-8"
     text     = raw.decode(enc, errors="replace")
@@ -619,8 +707,6 @@ def _load_json(path: Path) -> dict:
         data = _json.loads(text)
     except _json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON: {exc}") from exc
-
-    warnings: list[str] = []
 
     if isinstance(data, list):
         records = data
@@ -643,6 +729,12 @@ def _load_json(path: Path) -> dict:
     except Exception as exc:
         raise ValueError(f"Could not flatten JSON records: {exc}") from exc
 
+    _append_row_guardrails(len(df), warnings, degraded_reasons)
+    if degraded_reasons:
+        warnings.append(
+            "Degraded mode active: processing continues, but large inputs may be slow or memory-heavy."
+        )
+
     return {
         "dataframe":        df,
         "detected_format":  "json",
@@ -660,6 +752,7 @@ def _load_json(path: Path) -> dict:
             parsed_rows_total=len(df),
             malformed_rows=[],
         ),
+        "degraded_mode":   _build_degraded_mode(degraded_reasons),
         "warnings":         warnings,
     }
 
@@ -673,6 +766,9 @@ def _load_jsonl(path: Path) -> dict:
     import pandas as pd
 
     raw      = path.read_bytes()
+    warnings: list[str] = []
+    degraded_reasons: list[str] = []
+    _append_size_guardrails(path, warnings, degraded_reasons)
     enc_info = _detect_encoding_info(raw)
     enc      = enc_info["detected"] if enc_info["detected"] != "unknown" else "utf-8"
     text     = raw.decode(enc, errors="replace")
@@ -690,13 +786,17 @@ def _load_jsonl(path: Path) -> dict:
         except _json.JSONDecodeError as exc:
             parse_errors.append(f"line {line_num}: {exc}")
 
-    warnings: list[str] = []
     if parse_errors:
         sample = "; ".join(parse_errors[:3])
         extra  = f" (+{len(parse_errors) - 3} more)" if len(parse_errors) > 3 else ""
         warnings.append(f"{len(parse_errors)} lines could not be parsed — {sample}{extra}")
 
     df = pd.json_normalize(records) if records else pd.DataFrame()
+    _append_row_guardrails(len(df), warnings, degraded_reasons)
+    if degraded_reasons:
+        warnings.append(
+            "Degraded mode active: processing continues, but large inputs may be slow or memory-heavy."
+        )
 
     return {
         "dataframe":        df,
@@ -715,6 +815,7 @@ def _load_jsonl(path: Path) -> dict:
             parsed_rows_total=len(df),
             malformed_rows=[],
         ),
+        "degraded_mode":   _build_degraded_mode(degraded_reasons),
         "warnings":         warnings,
     }
 
