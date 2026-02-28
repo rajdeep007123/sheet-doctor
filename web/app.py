@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -117,6 +119,13 @@ def normalize_public_url(raw_url: str) -> str:
         return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
     if host in {"drive.google.com", "docs.google.com"}:
+        sheet_match = re.search(r"/spreadsheets/d/([^/]+)", path)
+        if sheet_match:
+            gid = query.get("gid", ["0"])[0]
+            return (
+                f"https://docs.google.com/spreadsheets/d/{sheet_match.group(1)}/export"
+                f"?format=xlsx&gid={gid}"
+            )
         match = re.search(r"/file/d/([^/]+)", path)
         if match:
             return f"https://drive.google.com/uc?export=download&id={match.group(1)}"
@@ -145,6 +154,77 @@ def remote_filename(raw_url: str, response: requests.Response) -> str:
     return Path(urlparse(redirected).path).name or Path(urlparse(raw_url).path).name or "downloaded_file"
 
 
+def infer_extension_from_response(
+    raw_url: str,
+    response: requests.Response,
+    filename: str,
+    content: bytes,
+) -> str:
+    ext = Path(filename).suffix.lower()
+    if ext in SUPPORTED_EXTS:
+        return ext
+
+    content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+    content_type_map = {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+        "application/vnd.ms-excel.sheet.macroenabled.12": ".xlsm",
+        "application/vnd.ms-excel": ".xls",
+        "application/vnd.oasis.opendocument.spreadsheet": ".ods",
+        "text/csv": ".csv",
+        "text/tab-separated-values": ".tsv",
+        "application/json": ".json",
+        "application/x-ndjson": ".jsonl",
+        "application/jsonl": ".jsonl",
+        "application/jsonlines": ".jsonl",
+    }
+    if content_type in content_type_map:
+        return content_type_map[content_type]
+
+    parsed = urlparse(raw_url)
+    if "docs.google.com" in parsed.netloc.lower() and "/spreadsheets/" in parsed.path:
+        return ".xlsx"
+
+    if content.startswith(b"PK"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                names = set(zf.namelist())
+                if "mimetype" in names:
+                    try:
+                        mimetype = zf.read("mimetype").decode("utf-8", errors="ignore").strip()
+                    except Exception:
+                        mimetype = ""
+                    if mimetype == "application/vnd.oasis.opendocument.spreadsheet":
+                        return ".ods"
+                if "xl/vbaProject.bin" in names:
+                    return ".xlsm"
+                if "xl/workbook.xml" in names:
+                    return ".xlsx"
+        except zipfile.BadZipFile:
+            pass
+
+    if content[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        return ".xls"
+
+    try:
+        sample = content[:8192].decode("utf-8", errors="replace")
+    except Exception:
+        sample = ""
+
+    lines = [line.strip() for line in sample.splitlines() if line.strip()]
+    if not lines:
+        return ext
+
+    if lines[0].startswith("{") or lines[0].startswith("["):
+        if len(lines) > 1 and all(line.startswith("{") for line in lines[:5]):
+            return ".jsonl"
+        return ".json"
+    if "\t" in "\n".join(lines[:5]):
+        return ".tsv"
+    if any(delim in "\n".join(lines[:5]) for delim in [",", ";", "|"]):
+        return ".csv"
+    return ".txt"
+
+
 def fetch_remote_source(raw_url: str, folder: Path) -> dict:
     url = normalize_public_url(raw_url)
     response = requests.get(url, timeout=60, allow_redirects=True)
@@ -154,9 +234,12 @@ def fetch_remote_source(raw_url: str, folder: Path) -> dict:
         raise ValueError(f"Remote file is larger than {MAX_REMOTE_FILE_MB} MB.")
 
     filename = remote_filename(raw_url, response)
-    ext = Path(filename).suffix.lower()
+    ext = infer_extension_from_response(raw_url, response, filename, content)
     if ext not in SUPPORTED_EXTS:
         raise ValueError(f"Unsupported remote file type: {ext or '[missing extension]'}")
+
+    if not Path(filename).suffix:
+        filename = f"{filename}{ext}"
 
     target = folder / filename
     target.write_bytes(content)

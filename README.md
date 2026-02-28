@@ -134,9 +134,14 @@ Public URL support:
 - GitHub file URLs (`blob` links are rewritten to raw)
 - Dropbox public links
 - Google Drive public file links
+- Google Sheets public share URLs (`/edit`) exported as `.xlsx`
 - OneDrive public links
 - Box public links
 - Other direct public file URLs that return the file itself
+
+Remote file-type detection:
+- If the public URL hides the extension, the UI now infers the file type from the response headers and file signature
+- This fixes masked links where the shared URL looks like a web page but actually serves an Excel/CSV/ODS file
 
 ---
 

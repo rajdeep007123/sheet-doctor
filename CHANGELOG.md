@@ -27,6 +27,7 @@ All notable changes to sheet-doctor are documented here.
   - Disabled upload/URL inputs only during active processing, not immediately after file selection
   - Removed Streamlit's top decoration/status strip and replaced it with an in-app loader message
   - Added public URL rewriting for GitHub, Dropbox, Google Drive, OneDrive, and Box share links
+  - Added Google Sheets `/edit` → `.xlsx` export handling and response-based file-type inference when the shared URL hides the extension
 - **Docs** — README, SKILL, and CONTRIBUTING updated to match the stricter loader behavior, test command, and current UI capabilities
 
 ---
