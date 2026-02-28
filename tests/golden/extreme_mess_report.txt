@@ -9,10 +9,10 @@ SECTION 1 — FILE OVERVIEW
 
 SECTION 2 — HEALTH SCORE
 🩺 Raw Health Score: 32/100 (Poor — major surgery required)
-🛟 Recoverability Score: 84/100 (Good — a few issues to address)
-✨ Post-Heal Score: 95/100 (Excellent — minor cleanup only)
+🛟 Recoverability Score: 71/100 (Good — a few issues to address)
+✨ Post-Heal Score: 79/100 (Good — a few issues to address)
   • Raw deductions — Encoding: -10, Structural: -30, Date chaos: -5, Missing data: -3, Duplicates: -10, Data quality: -10
-  • Healing projection — Clean rows: 40, Quarantine rows: 5, Needs review: 8, Fixed changes: 105
+  • Healing projection — Clean rows: 42, Quarantine rows: 5, Needs review: 11, Fixed changes: 94
 
 ⚠️ This file appears to contain PII. Handle according to your data protection policy.
 
@@ -100,7 +100,7 @@ Notes | free text | 15.22% null | No major issues detected
 SECTION 5 — RECOMMENDED ACTIONS
 1. Run sheet-doctor healing now: it can automatically address 8 issue type(s) across 13 flagged issue instance(s)
 2. Review 5 row(s) in the Quarantine tab that could not be repaired safely
-3. Manually inspect 8 cleaned row(s) still flagged `needs_review=TRUE` before relying on them downstream
+3. Manually inspect 11 cleaned row(s) still flagged `needs_review=TRUE` before relying on them downstream
 4. Normalize mixed date formats in Date (4 formats across about 47 populated row(s)) (auto-fixable)
 5. Review near-duplicate values in Department, Currency, Amount, Status to decide which versions should be merged or kept
 6. Manually check outlier values in Amount before trusting totals or downstream analysis

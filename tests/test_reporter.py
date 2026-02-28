@@ -90,9 +90,9 @@ class ReporterTests(unittest.TestCase):
         self.assertIn("Run sheet-doctor healing now", actions[0])
         self.assertTrue(any("Quarantine tab" in action for action in actions))
         self.assertTrue(any("needs_review=TRUE" in action for action in actions))
-        self.assertEqual(projection["clean_rows"], 40)
+        self.assertEqual(projection["clean_rows"], 42)
         self.assertEqual(projection["quarantine_rows"], 5)
-        self.assertEqual(projection["needs_review_rows"], 8)
+        self.assertEqual(projection["needs_review_rows"], 11)
 
     def test_report_text_matches_golden_snapshot(self):
         report = self.reporter.build_report(EXTREME_MESS_PATH)

@@ -1,18 +1,18 @@
 SECTION 1 — FILE OVERVIEW
 📄 File: extreme_mess.csv
-📊 Size: 46 rows × 8 columns
+📊 Size: 51 rows × 8 columns
+🧾 Parsed cleanly: 46 rows
+🧯 Malformed rows: 8 | Skipped by parser: 5
 💾 Format: csv
 🔤 Encoding: MacRoman
-⏱  Scanned: 2026-02-28T15:21:48
+⏱  Scanned: 2026-03-01T00:28:29
 
 SECTION 2 — HEALTH SCORE
-🩺 Health Score: 32/100 (Poor — major surgery required)
-  • Encoding problems: -10
-  • Structural problems: -30
-  • Date chaos: -5
-  • Missing data: -3
-  • Duplicates: -10
-  • Data quality issues: -10
+🩺 Raw Health Score: 32/100 (Poor — major surgery required)
+🛟 Recoverability Score: 71/100 (Good — a few issues to address)
+✨ Post-Heal Score: 79/100 (Good — a few issues to address)
+  • Raw deductions — Encoding: -10, Structural: -30, Date chaos: -5, Missing data: -3, Duplicates: -10, Data quality: -10
+  • Healing projection — Clean rows: 42, Quarantine rows: 5, Needs review: 11, Fixed changes: 94
 
 ⚠️ This file appears to contain PII. Handle according to your data protection policy.
 
@@ -30,44 +30,48 @@ SECTION 3 — ISSUES FOUND
 ⚠️  Warning (will cause analysis errors)
 - The file uses MacRoman instead of UTF-8, so some systems may misread special characters.
   Columns: file-wide
-  Rows affected: 46
+  Rows affected: 51
   Auto-fixable: ✅
 - The Employee Name column uses inconsistent capitalisation, which can split what should be one category into several versions.
   Columns: Employee Name
-  Rows affected: 44
+  Rows affected: 49
   Auto-fixable: ✅
 - The Date column mixes multiple date formats, so the same date may be interpreted differently by different tools.
   Columns: Date
-  Rows affected: 42
+  Rows affected: 47
   Auto-fixable: ✅
 - The Department column uses inconsistent capitalisation, which can split what should be one category into several versions.
   Columns: Department
-  Rows affected: 42
-  Auto-fixable: ❌
+  Rows affected: 47
+  Auto-fixable: ✅
 - The Department column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.
   Columns: Department
-  Rows affected: 42
+  Rows affected: 47
   Auto-fixable: ❌
 - The Currency column uses inconsistent capitalisation, which can split what should be one category into several versions.
   Columns: Currency
-  Rows affected: 41
+  Rows affected: 46
   Auto-fixable: ✅
 - The Currency column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.
   Columns: Currency
-  Rows affected: 41
-  Auto-fixable: ❌
+  Rows affected: 46
+  Auto-fixable: ✅
 - The Amount column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.
   Columns: Amount
-  Rows affected: 40
+  Rows affected: 45
+  Auto-fixable: ✅
+- The Amount column contains outlier values that look unusually large or small compared with the rest of the file.
+  Columns: Amount
+  Rows affected: 45
   Auto-fixable: ❌
 - The Status column uses inconsistent capitalisation, which can split what should be one category into several versions.
   Columns: Status
-  Rows affected: 39
+  Rows affected: 44
   Auto-fixable: ✅
 - The Status column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.
   Columns: Status
-  Rows affected: 39
-  Auto-fixable: ❌
+  Rows affected: 44
+  Auto-fixable: ✅
 - Some characters look corrupted, which may change names, notes, or other text values.
   Columns: file-wide
   Rows affected: 3
@@ -76,15 +80,11 @@ SECTION 3 — ISSUES FOUND
   Columns: row structure
   Rows affected: 2
   Auto-fixable: ✅
-- The Amount column contains outlier values that look unusually large or small compared with the rest of the file.
-  Columns: Amount
-  Rows affected: 1
-  Auto-fixable: ❌
 
 ℹ️  Info (cosmetic, worth fixing)
 - The Employee Name column appears to contain personally identifiable information that may need extra care before sharing.
   Columns: Employee Name
-  Rows affected: 44
+  Rows affected: 49
   Auto-fixable: ❌
 
 SECTION 4 — COLUMN BREAKDOWN
@@ -98,12 +98,12 @@ Status | categorical | 15.22% null | Inconsistent capitalisation; Possible dupli
 Notes | free text | 15.22% null | No major issues detected
 
 SECTION 5 — RECOMMENDED ACTIONS
-1. Repair 8 structurally broken row(s) with missing or extra columns (auto-fixable)
-2. Remove or quarantine 3 structural row(s) such as blank lines or repeated headers (auto-fixable)
-3. Normalize mixed date formats in Date (4 formats across about 42 populated row(s)) (auto-fixable)
-4. Review near-duplicate values in Department, Amount, Currency, Status to decide which versions should be merged or kept
-5. Manually check outlier values in Amount before trusting totals or downstream analysis
-6. Re-decode and normalise text values from MacRoman encoding so names and notes are readable everywhere (auto-fixable)
+1. Run sheet-doctor healing now: it can automatically address 8 issue type(s) across 13 flagged issue instance(s)
+2. Review 5 row(s) in the Quarantine tab that could not be repaired safely
+3. Manually inspect 11 cleaned row(s) still flagged `needs_review=TRUE` before relying on them downstream
+4. Normalize mixed date formats in Date (4 formats across about 47 populated row(s)) (auto-fixable)
+5. Review near-duplicate values in Department, Currency, Amount, Status to decide which versions should be merged or kept
+6. Manually check outlier values in Amount before trusting totals or downstream analysis
 
 SECTION 6 — ASSUMPTIONS
 • Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values

@@ -44,6 +44,7 @@ All notable changes to sheet-doctor are documented here.
   - Routes text/JSON formats to `csv-doctor`, modern Excel workbooks to `excel-doctor`, and falls back to loader-based readable export for `.xls` / `.ods`
   - Exposes sheet selection / consolidation controls for workbook preview in the UI
   - Shows workbook interpretation previews before healing, including detected header-band rows, metadata rows removed, effective headers, and chosen semantic columns
+  - Lets users override the detected workbook header row and semantic column roles before running tabular rescue healing
   - Supports sequential batch processing with in-app status/progress and per-file download buttons
 - **`tests/test_loader.py`** — regression coverage for the universal loader:
   - Local behavior tests for strict `.txt` rejection and explicit multi-sheet workbook selection in non-interactive mode
@@ -65,6 +66,8 @@ All notable changes to sheet-doctor are documented here.
   - This keeps workbook preambles, metadata bands, and true header rows visible to semantic/header detection
   - Semantic mode now covers workbook-style inputs with leading report rows and non-exact headers rather than dropping straight to generic cleanup
   - Multi-row workbook header bands are now merged into a single semantic header row before healing continues
+  - Sparse leading/trailing workbook columns are now trimmed before semantic planning so ragged clinical/report layouts remain recoverable
+  - Clinical/report-style fields such as `Ward` now map into semantic fill-down columns so merged-cell export gaps are repaired in the tested path
 - **`csv-doctor` / `diagnose.py`** — now emits deployable contract metadata:
   - Added `contract`, `schema_version`, `tool_version`, and `run_summary`
   - Exposes `degraded_mode` from the loader in the JSON report when active
@@ -78,6 +81,7 @@ All notable changes to sheet-doctor are documented here.
 - **`tests/test_reporter.py`** — now includes golden snapshot regression coverage for the plain-text and JSON reporter outputs
 - **`tests/test_heal_edge_cases.py`** — now covers workbook-semantic healing with preserved preamble rows and semantic normalization on workbook inputs
   - Added stacked-header workbook coverage so merged-style parent headers plus field-level headers stay semantic-healable
+  - Added ragged clinical/report workbook coverage so sparse edge columns, stacked headers, and fill-down categorical recovery stay locked down
 - **`csv-doctor` / `loader.py`** — Phase 4 operational hardening:
   - Added large-file guardrails with explicit warning, degraded-mode, and hard-stop thresholds for risky in-memory loads
   - Result payloads now expose `degraded_mode` so callers and the UI can react explicitly to risky inputs

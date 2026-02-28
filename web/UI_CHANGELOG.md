@@ -15,6 +15,7 @@ Notes specific to the local `web/app.py` interface live here so UI work can move
   - metadata rows removed
   - effective headers after workbook preprocessing
   - chosen semantic columns with confidence
+  - applied override summary when the user forces a header row or semantic role
 - Public URL rewriting for common share links:
   - GitHub `blob` -> raw file
   - Dropbox -> direct download
@@ -30,3 +31,7 @@ Notes specific to the local `web/app.py` interface live here so UI work can move
 - Upload and URL inputs stay enabled until processing actually begins
 - Streamlit's top decoration/status strip is hidden and replaced with in-app status messaging
 - UI styling aligned more closely with the Quietly.tools palette and font direction
+- Workbook configuration now exposes:
+  - a header-row override control
+  - per-column semantic role override controls
+  - optional tabular rescue mode for modern workbook files when users want a 3-sheet readable output instead of workbook-preserving healing

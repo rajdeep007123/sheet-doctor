@@ -41,7 +41,7 @@ first because the later items depend on them or matter less to user trust.
 ## P1
 
 - [ ] Workbook-semantic healing beyond flat tabular sheets
-  - Current behavior: messy workbook layouts mostly fall back to generic cleanup.
+  - Current behavior: the tested path now handles preserved preambles, stacked header bands, sparse edge columns, and some ragged report layouts, but broader messy workbook recovery is still incomplete.
   - Evidence:
     - `messy_aki.xlsx`
     - `messy_bp.xlsx`
@@ -54,6 +54,8 @@ first because the later items depend on them or matter less to user trust.
     - workbook healing now preserves raw worksheet rows so preambles and true headers survive into semantic detection
     - workbook inputs with leading metadata rows and non-exact headers now heal in `semantic` mode in the tested path
     - stacked workbook header bands are now merged into one semantic header row in the tested path
+    - sparse edge-column trimming now keeps ragged clinical/report layouts semantic-healable in the tested path
+    - UI users can now override the header row and semantic column roles before tabular rescue healing
 
 - [x] Post-heal scoring and recoverability reporting
   - Current behavior: report score reflects raw-file damage only.

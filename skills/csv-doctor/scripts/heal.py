@@ -107,6 +107,9 @@ class SemanticPlan:
     fill_down_indices: list[int]
 
 
+VALID_SEMANTIC_ROLES = ("name", "date", "amount", "currency", "status", "department", "category", "notes")
+
+
 FORMULA_RE = re.compile(r"^\s*=")
 TOTAL_LABEL_RE = re.compile(r"\b(grand\s+total|subtotal|sub-total|total|sum)\b", re.IGNORECASE)
 NOTES_ROW_RE = re.compile(r"\b(approved|manager|note|comment|memo|generated|report|expense|expenses)\b", re.IGNORECASE)
@@ -120,7 +123,7 @@ ROLE_HEADER_HINTS = {
     "amount": ("amount", "cost", "price", "value", "expense", "spend", "salary", "pay", "total"),
     "currency": ("currency", "curr", "fx", "ccy"),
     "status": ("status", "state", "approval", "approved", "decision"),
-    "department": ("department", "dept", "division", "team", "unit", "function"),
+    "department": ("department", "dept", "division", "team", "unit", "function", "ward", "location"),
     "category": ("category", "type", "class", "group", "bucket", "expense type"),
     "notes": ("notes", "note", "comment", "comments", "description", "details", "memo", "remarks"),
 }
@@ -179,7 +182,10 @@ def _looks_like_header_row(row: list[str]) -> bool:
     return alpha_cells >= max(2, len(non_empty) - 1) and numeric_heavy <= 1
 
 
-def detect_header_row_index(all_rows: list[list[str]]) -> int:
+def detect_header_row_index(all_rows: list[list[str]], explicit_header_row: int | None = None) -> int:
+    if explicit_header_row is not None:
+        return max(0, min(len(all_rows) - 1, explicit_header_row - 1))
+
     search_rows = all_rows[:20]
     exact_matches = [
         idx for idx, row in enumerate(search_rows)
@@ -249,10 +255,78 @@ def merge_header_band_rows(rows: list[list[str]]) -> list[str]:
     return merged
 
 
-def preprocess_rows(all_rows: list[list[str]]) -> tuple[list[list[str]], list[Change]]:
-    header_idx = detect_header_row_index(all_rows)
-    if header_idx <= 0:
+def trim_sparse_edge_columns(all_rows: list[list[str]]) -> tuple[list[list[str]], list[Change]]:
+    if not all_rows:
         return all_rows, []
+
+    width = max((len(row) for row in all_rows), default=0)
+    if width == 0:
+        return all_rows, []
+
+    padded = [row + [""] * (width - len(row)) for row in all_rows]
+    data_rows = padded[1:] if len(padded) > 1 else []
+    data_threshold = max(1, int(len(data_rows) * 0.15)) if data_rows else 1
+
+    def non_empty_count(col_idx: int) -> int:
+        return sum(1 for row in padded if row[col_idx].strip())
+
+    left = 0
+    while left < width:
+        header_cell = padded[0][left].strip()
+        if header_cell:
+            break
+        if non_empty_count(left) > data_threshold:
+            break
+        left += 1
+
+    right = width
+    while right > left:
+        header_cell = padded[0][right - 1].strip()
+        if header_cell:
+            break
+        if non_empty_count(right - 1) > data_threshold:
+            break
+        right -= 1
+
+    if left == 0 and right == width:
+        return all_rows, []
+
+    trimmed = [row[left:right] for row in padded]
+    changes: list[Change] = []
+    if left > 0:
+        changes.append(
+            Change(
+                1,
+                "[column trimming]",
+                f"Removed {left} leading sparse column(s)",
+                "",
+                "Fixed",
+                "Sparse leading workbook columns removed before semantic/header detection",
+            )
+        )
+    if right < width:
+        changes.append(
+            Change(
+                1,
+                "[column trimming]",
+                f"Removed {width - right} trailing sparse column(s)",
+                "",
+                "Fixed",
+                "Sparse trailing workbook columns removed before semantic/header detection",
+            )
+        )
+    return trimmed, changes
+
+
+def preprocess_rows(
+    all_rows: list[list[str]],
+    *,
+    explicit_header_row: int | None = None,
+) -> tuple[list[list[str]], list[Change]]:
+    header_idx = detect_header_row_index(all_rows, explicit_header_row=explicit_header_row)
+    if header_idx <= 0:
+        trimmed_rows, trim_changes = trim_sparse_edge_columns(all_rows)
+        return trimmed_rows, trim_changes
 
     header_band_start = detect_header_band_start_index(all_rows, header_idx)
     changes: list[Change] = []
@@ -282,9 +356,11 @@ def preprocess_rows(all_rows: list[list[str]]) -> tuple[list[list[str]], list[Ch
                 "Multi-row workbook header band merged into a single semantic header row",
             )
         )
-        return [merged_header] + all_rows[header_idx + 1 :], changes
+        trimmed_rows, trim_changes = trim_sparse_edge_columns([merged_header] + all_rows[header_idx + 1 :])
+        return trimmed_rows, changes + trim_changes
 
-    return all_rows[header_idx:], changes
+    trimmed_rows, trim_changes = trim_sparse_edge_columns(all_rows[header_idx:])
+    return trimmed_rows, changes + trim_changes
 
 
 def is_formula_residue(value: str) -> bool:
@@ -1340,7 +1416,12 @@ def _semantic_role_scores(header: str, column_stats: dict) -> dict[str, float]:
     return {role: min(score, 0.99) for role, score in scores.items()}
 
 
-def build_semantic_plan(headers: list[str], raw_rows: list[list[str]], delimiter: str) -> SemanticPlan:
+def build_semantic_plan(
+    headers: list[str],
+    raw_rows: list[list[str]],
+    delimiter: str,
+    role_overrides: dict[int, str] | None = None,
+) -> SemanticPlan:
     n_cols = len(headers)
     preview_rows: list[list[str]] = []
 
@@ -1411,6 +1492,22 @@ def build_semantic_plan(headers: list[str], raw_rows: list[list[str]], delimiter
     assign_unique_detected_type("currency", "currency code")
     assign_unique_detected_type("notes", "free text", minimum=0.55)
 
+    role_overrides = role_overrides or {}
+    if role_overrides:
+        for idx, role in role_overrides.items():
+            if idx < 0 or idx >= len(headers):
+                continue
+            assignments.pop(idx, None)
+            confidences.pop(idx, None)
+            if role == "ignore":
+                continue
+            for assigned_idx, assigned_role in list(assignments.items()):
+                if assigned_role == role:
+                    assignments.pop(assigned_idx, None)
+                    confidences.pop(assigned_idx, None)
+            assignments[idx] = role
+            confidences[idx] = 1.0
+
     primary_roles = set(assignments.values())
     enabled = (
         "amount" in primary_roles
@@ -1445,6 +1542,8 @@ def inspect_healing_plan(
     *,
     sheet_name: str | None = None,
     consolidate_sheets: bool | None = None,
+    header_row_override: int | None = None,
+    role_overrides: dict[int, str] | None = None,
 ) -> dict:
     all_rows, delimiter = read_file(
         input_path,
@@ -1454,9 +1553,12 @@ def inspect_healing_plan(
     if not all_rows:
         raise ValueError("File is empty.")
 
-    header_idx = detect_header_row_index(all_rows)
+    header_idx = detect_header_row_index(all_rows, explicit_header_row=header_row_override)
     header_band_start = detect_header_band_start_index(all_rows, header_idx)
-    preprocessed_rows, preprocessing_changes = preprocess_rows(all_rows)
+    preprocessed_rows, preprocessing_changes = preprocess_rows(
+        all_rows,
+        explicit_header_row=header_row_override,
+    )
     if not preprocessed_rows:
         raise ValueError("No usable rows remain after preprocessing.")
 
@@ -1487,7 +1589,12 @@ def inspect_healing_plan(
         ]
     else:
         headers, _ = normalise_headers_generic(raw_header)
-        semantic_plan = build_semantic_plan(headers, preprocessed_rows[1:], delimiter)
+        semantic_plan = build_semantic_plan(
+            headers,
+            preprocessed_rows[1:],
+            delimiter,
+            role_overrides=role_overrides,
+        )
         mode = "semantic" if semantic_plan.enabled else "generic"
         semantic_columns = [
             {
@@ -1509,6 +1616,9 @@ def inspect_healing_plan(
         "effective_headers": headers,
         "healing_mode_candidate": mode,
         "semantic_columns": semantic_columns,
+        "applied_role_overrides": {
+            str(idx + 1): role for idx, role in sorted((role_overrides or {}).items())
+        },
     }
 
 
@@ -1643,12 +1753,15 @@ def needs_review_generic(row: list[str], structure_changed: bool) -> bool:
 
 
 def process_generic(
-    all_rows: list[list[str]], delimiter: str, initial_changelog: list[Change] | None = None
+    all_rows: list[list[str]],
+    delimiter: str,
+    initial_changelog: list[Change] | None = None,
+    role_overrides: dict[int, str] | None = None,
 ) -> tuple[list[CleanRow], list[QuarantineRow], list[Change], list[str], str]:
     headers, header_changes = normalise_headers_generic(all_rows[0])
     n_cols = len(headers)
     header_sig = tuple(h.strip().lower() for h in headers)
-    semantic_plan = build_semantic_plan(headers, all_rows[1:], delimiter)
+    semantic_plan = build_semantic_plan(headers, all_rows[1:], delimiter, role_overrides=role_overrides)
     applied_mode = "semantic" if semantic_plan.enabled else "generic"
 
     clean_data: list[CleanRow] = []
@@ -1906,9 +2019,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("input", nargs="?", default=str(INPUT), help="Input file path")
     parser.add_argument("output", nargs="?", default=str(OUTPUT), help="Output .xlsx path")
     parser.add_argument(
+        "--header-row",
+        dest="header_row",
+        type=int,
+        help="Optional 1-based row number to force as the detected header row",
+    )
+    parser.add_argument(
         "--json-summary",
         dest="json_summary",
         help="Optional path to write a structured JSON healing summary for UI/backend use",
+    )
+    parser.add_argument(
+        "--role-override",
+        dest="role_overrides",
+        action="append",
+        default=[],
+        help="Optional semantic override in the form <column_index>=<role> using 1-based indexes; role can also be 'ignore'",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--sheet", dest="sheet_name", help="Workbook sheet name to heal")
@@ -1919,6 +2045,28 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Consolidate all sheets before healing (only when columns are compatible)",
     )
     return parser.parse_args(argv)
+
+
+def parse_role_overrides(raw_overrides: list[str]) -> dict[int, str]:
+    overrides: dict[int, str] = {}
+    allowed = set(VALID_SEMANTIC_ROLES) | {"ignore"}
+    for raw in raw_overrides:
+        if "=" not in raw:
+            raise ValueError(f"Invalid role override '{raw}'. Expected <column_index>=<role>.")
+        index_text, role_text = raw.split("=", 1)
+        try:
+            index = int(index_text.strip())
+        except ValueError as exc:
+            raise ValueError(f"Invalid role override column index '{index_text}'.") from exc
+        role = role_text.strip().lower()
+        if index < 1:
+            raise ValueError(f"Role override column index must be >= 1: '{raw}'")
+        if role not in allowed:
+            raise ValueError(
+                f"Invalid role override role '{role}'. Expected one of: {', '.join(sorted(allowed))}"
+            )
+        overrides[index - 1] = role
+    return overrides
 
 
 def build_structured_summary(result: dict, *, input_path: Path, output_path: Path) -> dict:
@@ -1971,6 +2119,8 @@ def execute_healing(
     *,
     sheet_name: str | None = None,
     consolidate_sheets: bool | None = None,
+    header_row_override: int | None = None,
+    role_overrides: dict[int, str] | None = None,
 ) -> dict:
     if not input_path.exists():
         raise FileNotFoundError(f"File not found: {input_path}")
@@ -1984,7 +2134,10 @@ def execute_healing(
         raise ValueError("File is empty or has only a header.")
 
     original_total_in = len(all_rows)
-    all_rows, metadata_changes = preprocess_rows(all_rows)
+    all_rows, metadata_changes = preprocess_rows(
+        all_rows,
+        explicit_header_row=header_row_override,
+    )
     if len(all_rows) < 2:
         raise ValueError("File is empty after metadata/header detection.")
 
@@ -2001,6 +2154,7 @@ def execute_healing(
             all_rows,
             delimiter,
             initial_changelog=metadata_changes,
+            role_overrides=role_overrides,
         )
         assumptions = SEMANTIC_ASSUMPTIONS if mode == "semantic" else GENERIC_ASSUMPTIONS
 
@@ -2029,11 +2183,14 @@ def main():
     args = parse_args(sys.argv[1:])
     input_path = Path(args.input)
     output_path = Path(args.output)
+    role_overrides = parse_role_overrides(args.role_overrides)
     try:
         result = execute_healing(
             input_path,
             sheet_name=args.sheet_name,
             consolidate_sheets=True if args.all_sheets else None,
+            header_row_override=args.header_row,
+            role_overrides=role_overrides,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

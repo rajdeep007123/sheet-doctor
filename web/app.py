@@ -32,6 +32,7 @@ LEGACY_PREVIEW_EXTS = {".xls", ".ods"}
 WORKBOOK_EXTS = MODERN_EXCEL_EXTS | LEGACY_PREVIEW_EXTS
 SUPPORTED_EXTS = TEXTUAL_EXTS | WORKBOOK_EXTS
 MAX_REMOTE_FILE_MB = 100
+SEMANTIC_ROLE_OPTIONS = ["auto", "ignore", "name", "date", "amount", "currency", "status", "department", "category", "notes"]
 
 
 @st.cache_resource(show_spinner=False)
@@ -296,6 +297,8 @@ def workbook_semantic_info(
     path: Path,
     sheet_name: Optional[str] = None,
     consolidate: Optional[bool] = None,
+    header_row_override: Optional[int] = None,
+    role_overrides: Optional[dict[int, str]] = None,
 ) -> tuple[Optional[dict], Optional[str]]:
     try:
         return (
@@ -303,6 +306,8 @@ def workbook_semantic_info(
                 path,
                 sheet_name=sheet_name,
                 consolidate_sheets=consolidate,
+                header_row_override=header_row_override,
+                role_overrides=role_overrides,
             ),
             None,
         )
@@ -390,12 +395,20 @@ def inspect_local_workbook_semantics(
     suffix: str,
     sheet_name: Optional[str] = None,
     consolidate: Optional[bool] = None,
+    header_row_override: Optional[int] = None,
+    role_overrides: Optional[dict[int, str]] = None,
 ) -> tuple[Optional[dict], Optional[str]]:
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(file_bytes)
         tmp_path = Path(tmp.name)
     try:
-        return workbook_semantic_info(tmp_path, sheet_name=sheet_name, consolidate=consolidate)
+        return workbook_semantic_info(
+            tmp_path,
+            sheet_name=sheet_name,
+            consolidate=consolidate,
+            header_row_override=header_row_override,
+            role_overrides=role_overrides,
+        )
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -414,6 +427,8 @@ def inspect_remote_workbook_semantics(
     url: str,
     sheet_name: Optional[str] = None,
     consolidate: Optional[bool] = None,
+    header_row_override: Optional[int] = None,
+    role_overrides: Optional[dict[int, str]] = None,
 ) -> tuple[Optional[dict], Optional[str]]:
     with tempfile.TemporaryDirectory(prefix="sheet_doctor_url_semantic_") as tmpdir:
         tmp_path = Path(tmpdir)
@@ -425,6 +440,8 @@ def inspect_remote_workbook_semantics(
             remote["path"],
             sheet_name=sheet_name,
             consolidate=consolidate,
+            header_row_override=header_row_override,
+            role_overrides=role_overrides,
         )
 
 
@@ -482,6 +499,31 @@ def source_items(uploads, raw_urls: str) -> list[dict]:
 def build_job(prompt: str, intent: str, sources: list[dict]) -> list[dict]:
     jobs = []
     for idx, source in enumerate(sources):
+        source_id = f"{idx}_{source['source_label']}"
+        role_overrides = {}
+        prefix = f"role_{source_id}_"
+        for key, value in st.session_state.items():
+            if not key.startswith(prefix) or value in (None, "", "auto"):
+                continue
+            try:
+                column_index = int(key.rsplit("_", 1)[1])
+            except ValueError:
+                continue
+            role_overrides[column_index - 1] = value
+
+        header_row_override = st.session_state.get(f"headerrow_{source_id}")
+        detected_header_row = st.session_state.get(f"detected_header_{source_id}")
+        tabular_rescue = bool(st.session_state.get(f"tabular_{source_id}", source["ext"] in LEGACY_PREVIEW_EXTS))
+        if source["ext"] in WORKBOOK_EXTS and (
+            role_overrides
+            or (
+                header_row_override is not None
+                and detected_header_row is not None
+                and int(header_row_override) != int(detected_header_row)
+            )
+        ):
+            tabular_rescue = True
+
         item = {
             "name": source["name"],
             "ext": source["ext"],
@@ -492,10 +534,13 @@ def build_job(prompt: str, intent: str, sources: list[dict]) -> list[dict]:
             "consolidate": False,
             "source_kind": source["source_kind"],
             "source_label": source["source_label"],
+            "header_row_override": header_row_override,
+            "role_overrides": role_overrides,
+            "tabular_rescue": tabular_rescue,
         }
         if item["ext"] in WORKBOOK_EXTS:
-            item["sheet_name"] = st.session_state.get(f"sheet_{idx}_{source['source_label']}")
-            item["consolidate"] = bool(st.session_state.get(f"consolidate_{idx}_{source['source_label']}", False))
+            item["sheet_name"] = st.session_state.get(f"sheet_{source_id}")
+            item["consolidate"] = bool(st.session_state.get(f"consolidate_{source_id}", False))
         jobs.append(item)
     return jobs
 
@@ -519,6 +564,8 @@ def process_one_item(item: dict, folder: Path) -> dict:
             item["sheet_name"] = sheet_names[0]
 
     support_heal, support_message = heal_support_message(ext)
+    if ext in WORKBOOK_EXTS and item.get("tabular_rescue"):
+        support_message = "Tabular rescue mode will heal this workbook into a 3-sheet readable workbook using workbook semantic detection."
     result = {
         "name": item["name"],
         "ext": ext,
@@ -542,6 +589,8 @@ def process_one_item(item: dict, folder: Path) -> dict:
             source_path,
             sheet_name=item.get("sheet_name") if not item.get("consolidate") else None,
             consolidate=item.get("consolidate"),
+            header_row_override=item.get("header_row_override"),
+            role_overrides=item.get("role_overrides"),
         )
         if semantic_error:
             result["messages"].append(f"Workbook interpretation preview failed: {semantic_error}")
@@ -593,8 +642,18 @@ def process_one_item(item: dict, folder: Path) -> dict:
     output_name = f"{source_path.stem}_readable.xlsx"
     output_path = folder / output_name
 
-    if ext in TEXTUAL_EXTS:
-        completed = run_script(CSV_HEAL, str(source_path), str(output_path))
+    if ext in TEXTUAL_EXTS or (ext in WORKBOOK_EXTS and item.get("tabular_rescue")):
+        heal_args = [str(source_path), str(output_path)]
+        if ext in WORKBOOK_EXTS:
+            if item.get("consolidate"):
+                heal_args.append("--all-sheets")
+            elif item.get("sheet_name"):
+                heal_args.extend(["--sheet", str(item["sheet_name"])])
+            if item.get("header_row_override"):
+                heal_args.extend(["--header-row", str(item["header_row_override"])])
+            for column_index, role in sorted((item.get("role_overrides") or {}).items()):
+                heal_args.extend(["--role-override", f"{column_index + 1}={role}"])
+        completed = run_script(CSV_HEAL, *heal_args)
         result["stdout"] = completed.stdout.strip()
         result["stderr"] = completed.stderr.strip()
         if completed.returncode != 0:
@@ -730,6 +789,8 @@ def render_workbook_semantics(inspection: dict) -> None:
         st.dataframe(pd.DataFrame(semantic_columns), width="stretch", hide_index=True)
     else:
         st.info("No confident semantic column mapping was detected for this workbook preview.")
+    if inspection.get("applied_role_overrides"):
+        st.caption(f"Applied overrides: {inspection['applied_role_overrides']}")
 
 
 def render_results() -> None:
@@ -956,8 +1017,10 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
                 continue
 
             st.write(f"Sheets found: {', '.join(sheet_names)}")
-            consolidate_key = f"consolidate_{idx}_{item['source_label']}"
-            sheet_key = f"sheet_{idx}_{item['source_label']}"
+            source_id = f"{idx}_{item['source_label']}"
+            consolidate_key = f"consolidate_{source_id}"
+            sheet_key = f"sheet_{source_id}"
+            tabular_key = f"tabular_{source_id}"
 
             if len(sheet_names) > 1 and same_columns:
                 st.checkbox(
@@ -979,6 +1042,14 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
 
             selected_sheet = None if st.session_state.get(consolidate_key, False) else st.session_state.get(sheet_key) or sheet_names[0]
             consolidate = bool(st.session_state.get(consolidate_key, False))
+            st.checkbox(
+                f"Use tabular rescue mode for {item['name']}",
+                value=ext in LEGACY_PREVIEW_EXTS,
+                key=tabular_key,
+                disabled=disabled,
+                help="Use csv-doctor semantic rescue to create a 3-sheet readable workbook. Leave this off to keep workbook-preserving healing for .xlsx/.xlsm.",
+            )
+
             if item["source_kind"] == "url":
                 inspection, semantic_error = inspect_remote_workbook_semantics(
                     item["source_label"],
@@ -996,6 +1067,80 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
             if semantic_error:
                 st.info(f"Workbook interpretation unavailable: {semantic_error}")
             elif inspection:
+                detected_header_key = f"detected_header_{source_id}"
+                st.session_state[detected_header_key] = inspection["detected_header_row_number"]
+                header_row_key = f"headerrow_{source_id}"
+                if header_row_key not in st.session_state:
+                    st.session_state[header_row_key] = inspection["detected_header_row_number"]
+
+                header_override = st.number_input(
+                    f"Header row for {item['name']}",
+                    min_value=1,
+                    max_value=max(1, int(inspection.get("original_rows_total", 1))),
+                    step=1,
+                    key=header_row_key,
+                    disabled=disabled,
+                    help="Choose which 1-based row should be treated as the true header row before healing.",
+                )
+
+                if item["source_kind"] == "url":
+                    inspection, semantic_error = inspect_remote_workbook_semantics(
+                        item["source_label"],
+                        sheet_name=selected_sheet,
+                        consolidate=consolidate,
+                        header_row_override=int(header_override),
+                    )
+                else:
+                    inspection, semantic_error = inspect_local_workbook_semantics(
+                        item["bytes"],
+                        ext,
+                        sheet_name=selected_sheet,
+                        consolidate=consolidate,
+                        header_row_override=int(header_override),
+                    )
+
+                if semantic_error:
+                    st.info(f"Workbook interpretation unavailable: {semantic_error}")
+                    continue
+
+                role_overrides: dict[int, str] = {}
+                headers = inspection.get("effective_headers") or []
+                if headers:
+                    st.caption("Override semantic roles")
+                    for col_index, header in enumerate(headers, start=1):
+                        role_key = f"role_{source_id}_{col_index}"
+                        st.selectbox(
+                            f"{col_index}. {header}",
+                            options=SEMANTIC_ROLE_OPTIONS,
+                            key=role_key,
+                            disabled=disabled,
+                        )
+                        selected_role = st.session_state.get(role_key, "auto")
+                        if selected_role != "auto":
+                            role_overrides[col_index - 1] = selected_role
+
+                if role_overrides:
+                    if item["source_kind"] == "url":
+                        inspection, semantic_error = inspect_remote_workbook_semantics(
+                            item["source_label"],
+                            sheet_name=selected_sheet,
+                            consolidate=consolidate,
+                            header_row_override=int(header_override),
+                            role_overrides=role_overrides,
+                        )
+                    else:
+                        inspection, semantic_error = inspect_local_workbook_semantics(
+                            item["bytes"],
+                            ext,
+                            sheet_name=selected_sheet,
+                            consolidate=consolidate,
+                            header_row_override=int(header_override),
+                            role_overrides=role_overrides,
+                        )
+                    if semantic_error:
+                        st.info(f"Workbook interpretation unavailable: {semantic_error}")
+                        continue
+
                 render_workbook_semantics(inspection)
 
 

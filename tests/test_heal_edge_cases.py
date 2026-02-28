@@ -206,8 +206,12 @@ class HealEdgeCaseTests(unittest.TestCase):
 
             self.assertEqual(delimiter, ",")
             self.assertEqual(rows[0], ["name", "score"])
-            self.assertEqual(rows[1], ["Ada", "10"])
-            self.assertEqual(rows[2], ["Grace", "11"])
+        self.assertEqual(rows[1], ["Ada", "10"])
+        self.assertEqual(rows[2], ["Grace", "11"])
+
+    def test_parse_role_overrides_accepts_valid_mapping(self):
+        overrides = self.heal.parse_role_overrides(["1=name", "4=amount", "8=ignore"])
+        self.assertEqual(overrides, {0: "name", 3: "amount", 7: "ignore"})
 
     def test_read_file_preserves_workbook_preamble_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -312,6 +316,54 @@ class HealEdgeCaseTests(unittest.TestCase):
             roles = {entry["header"]: entry["role"] for entry in inspection["semantic_columns"]}
             self.assertEqual(roles["Employee Name"], "name")
             self.assertEqual(roles["Transaction Date"], "date")
+
+    def test_inspect_healing_plan_honours_role_overrides(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "override_workbook.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Transactions"
+            ws.append(["Emp Name", "Division", "Txn Date", "Cost", "Curr", "Approval State", "Comments"])
+            ws.append(["ada lovelace", "finance", "15/01/2023", "$1,200 USD", "", "approved", "Taxi"])
+            wb.save(path)
+
+            inspection = self.heal.inspect_healing_plan(
+                path,
+                sheet_name="Transactions",
+                role_overrides={1: "category"},
+            )
+
+            applied = {int(k): v for k, v in inspection["applied_role_overrides"].items()}
+            self.assertEqual(applied[2], "category")
+            roles = {entry["column_index"]: entry["role"] for entry in inspection["semantic_columns"]}
+            self.assertEqual(roles[2], "category")
+
+    def test_execute_healing_handles_ragged_clinical_layout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "clinical_ragged.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Ward Report"
+            ws.append(["Clinical Summary", "", "", "", "", "", "", "", "", ""])
+            ws.append(["", "", "Patient", "", "Visit", "", "Charge", "", "Billing", ""])
+            ws.append(["", "", "Name", "Ward", "Date", "Type", "Amount", "Currency", "Status", ""])
+            ws.append(["", "", "alice wong", "Ward A", "15/01/2023", "Consult", "$125.00", "", "approved", ""])
+            ws.append(["", "", "bob li", "", "2023-01-16", "Lab", "", "USD 88", "pending review", ""])
+            wb.save(path)
+
+            inspection = self.heal.inspect_healing_plan(path, sheet_name="Ward Report")
+            result = self.heal.execute_healing(path, sheet_name="Ward Report")
+
+            self.assertEqual(inspection["healing_mode_candidate"], "semantic")
+            self.assertEqual(inspection["effective_headers"][0], "Patient Name")
+            self.assertEqual(result["mode"], "semantic")
+            self.assertEqual(result["clean_data"][0].row[0], "Alice Wong")
+            self.assertEqual(result["clean_data"][0].row[2], "2023-01-15")
+            self.assertEqual(result["clean_data"][0].row[4], "125.00")
+            self.assertEqual(result["clean_data"][0].row[5], "USD")
+            self.assertEqual(result["clean_data"][1].row[1], "Ward A")
+            self.assertEqual(result["clean_data"][1].row[4], "88.00")
+            self.assertEqual(result["clean_data"][1].row[5], "USD")
 
 
 if __name__ == "__main__":

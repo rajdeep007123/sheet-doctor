@@ -37,6 +37,7 @@ More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 - ✅ `schemas/` — versioned JSON contract docs for deployable machine outputs
 - ✅ `pyproject.toml` — package/release metadata with optional extras for `.xls` and `.ods`
 - ✅ workbook-semantic healing — workbook preambles and non-exact workbook headers now flow through semantic mode instead of flattening into generic cleanup
+- ✅ workbook override controls in the UI — users can override detected header rows and semantic roles before tabular rescue healing
 
 ## Architecture
 
@@ -79,6 +80,8 @@ Workbook-semantic behavior:
 - leading report/preamble rows in workbooks can now be detected as metadata before semantic role inference runs
 - semantic mode can now recover workbook tables with pre-header bands plus non-exact headers such as `Emp Name`, `Txn Date`, `Cost`, and `Approval State`
 - stacked workbook header bands can now be merged into one semantic header row before normalization
+- ragged workbook/report layouts with sparse leading or trailing columns now trim those sparse edges before header and semantic detection
+- clinical/report-style workbook columns such as `Ward` now participate in semantic fill-down so merged-cell style blanks remain readable after healing
 
 Deployable machine outputs:
 - JSON-producing scripts now emit `contract`, `schema_version`, `tool_version`, and `run_summary`
@@ -207,7 +210,9 @@ What the UI currently does:
 - Paste public file URLs one per line
 - Add a plain-English prompt like "make this readable for humans"
 - Preview the loaded table before acting
-- Preview workbook interpretation before healing, including detected header bands and chosen semantic columns
+- Preview workbook interpretation before healing, including detected header bands, metadata rows removed, effective headers, and chosen semantic columns
+- Let the user override the detected workbook header row before healing
+- Let the user override semantic column roles in the UI before tabular rescue healing
 - Route to diagnose or heal flows
 - Process files sequentially with an in-app progress loader
 - Show source-specific notes for special URL handling such as Google Sheets export
@@ -215,8 +220,8 @@ What the UI currently does:
 
 Current UI healing matrix:
 - `.csv .tsv .txt .json .jsonl` → `csv-doctor/heal.py`
-- `.xlsx .xlsm` → `excel-doctor/heal.py`
-- `.xls .ods` → loader-based readable export fallback (preview + clean workbook export, not full workbook-preserving heal)
+- `.xlsx .xlsm` → `excel-doctor/heal.py` by default, or `csv-doctor/heal.py` in optional tabular rescue mode
+- `.xls .ods` → `csv-doctor/heal.py` in tabular rescue mode when the workbook looks tabular enough, otherwise loader-based readable export fallback
 
 Public URL support:
 - GitHub file URLs (`blob` links are rewritten to raw)
