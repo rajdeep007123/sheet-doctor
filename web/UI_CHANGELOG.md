@@ -36,3 +36,4 @@ Notes specific to the local `web/app.py` interface live here so UI work can move
   - a header-row override control
   - per-column semantic role override controls
   - optional tabular rescue mode for modern workbook files when users want a 3-sheet readable output instead of workbook-preserving healing
+  - a required confirmation step before workbook tabular rescue runs

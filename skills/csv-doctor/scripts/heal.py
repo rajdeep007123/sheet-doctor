@@ -107,7 +107,18 @@ class SemanticPlan:
     fill_down_indices: list[int]
 
 
-VALID_SEMANTIC_ROLES = ("name", "date", "amount", "currency", "status", "department", "category", "notes")
+VALID_SEMANTIC_ROLES = (
+    "identifier",
+    "name",
+    "date",
+    "amount",
+    "measurement",
+    "currency",
+    "status",
+    "department",
+    "category",
+    "notes",
+)
 
 
 FORMULA_RE = re.compile(r"^\s*=")
@@ -118,13 +129,15 @@ STATUS_VALUE_HINTS = set(STATUS_MAP.keys()) if "STATUS_MAP" in globals() else {
     "approved", "approve", "rejected", "reject", "pending", "pending review",
 }
 ROLE_HEADER_HINTS = {
+    "identifier": ("id", "code", "study id", "study_id", "pat_id", "patient id", "subject id", "record id"),
     "name": ("name", "person", "contact"),
-    "date": ("date", "dated", "txn date", "transaction", "invoice date", "posted"),
+    "date": ("date", "dated", "txn date", "transaction", "invoice date", "posted", "dob", "dofb"),
     "amount": ("amount", "cost", "price", "value", "expense", "spend", "salary", "pay", "total"),
+    "measurement": ("bp", "hr", "gfr", "glucose", "weight", "height", "score", "rate", "result", "reading", "pre", "post"),
     "currency": ("currency", "curr", "fx", "ccy"),
     "status": ("status", "state", "approval", "approved", "decision"),
     "department": ("department", "dept", "division", "team", "unit", "function", "ward", "location", "clinic"),
-    "category": ("category", "type", "class", "group", "bucket", "expense type"),
+    "category": ("category", "type", "class", "group", "bucket", "expense type", "race", "sex", "ethnicity", "hispanic", "diagnosis", "sediment"),
     "notes": ("notes", "note", "comment", "comments", "description", "details", "memo", "remarks"),
 }
 
@@ -1424,9 +1437,11 @@ def _semantic_role_scores(header: str, column_stats: dict) -> dict[str, float]:
     detected_type = column_stats.get("detected_type", "unknown")
     header_text = _header_text(header)
     scores = {
+        "identifier": 0.0,
         "name": 0.0,
         "date": 0.0,
         "amount": 0.0,
+        "measurement": 0.0,
         "currency": 0.0,
         "status": 0.0,
         "department": 0.0,
@@ -1435,13 +1450,19 @@ def _semantic_role_scores(header: str, column_stats: dict) -> dict[str, float]:
     }
 
     if detected_type == "name":
-        scores["name"] += 0.72
+        scores["name"] += 0.45
     if detected_type == "date":
         scores["date"] += 0.72
+    if detected_type == "ID/code":
+        scores["identifier"] += 0.72
     if detected_type == "currency/amount":
         scores["amount"] += 0.72
+        scores["measurement"] += 0.24
     if detected_type == "plain number":
         scores["amount"] += 0.42
+        scores["measurement"] += 0.45
+    if detected_type == "percentage":
+        scores["measurement"] += 0.35
     if detected_type == "currency code":
         scores["currency"] += 0.72
     if detected_type == "boolean":
@@ -1455,12 +1476,16 @@ def _semantic_role_scores(header: str, column_stats: dict) -> dict[str, float]:
 
     for role in scores:
         if _header_matches_role(header, role):
-            if role == "name":
+            if role == "identifier":
+                scores[role] += 0.82 if re.search(r"\b(id|code)\b", header_text) else 0.68
+            elif role == "name":
                 scores[role] += 0.82 if re.search(r"\bname\b", header_text) else 0.68
             elif role == "currency":
                 scores[role] += 0.68
             elif role in {"date", "amount"}:
                 scores[role] += 0.32
+            elif role == "measurement":
+                scores[role] += 0.72
             elif role == "department":
                 scores[role] += 0.82 if re.search(r"\b(ward|clinic|division|department|dept|team|unit|function|location)\b", header_text) else 0.68
             else:
@@ -1470,6 +1495,16 @@ def _semantic_role_scores(header: str, column_stats: dict) -> dict[str, float]:
         scores["status"] += 0.28
     if detected_type == "free text" and _average_sample_length(column_stats) >= 20:
         scores["notes"] += 0.12
+
+    if not _header_matches_role(header, "name") and any(
+        _header_matches_role(header, role_name)
+        for role_name in ("identifier", "measurement", "department", "category", "status", "date")
+    ):
+        scores["name"] = min(scores["name"], 0.40)
+    if re.search(r"\b(month|day|year)\b", header_text) and not re.search(r"\b(date|dob|dofb)\b", header_text):
+        scores["date"] = min(scores["date"], 0.40)
+    if _header_matches_role(header, "measurement"):
+        scores["notes"] = min(scores["notes"], 0.20)
 
     return {role: min(score, 0.99) for role, score in scores.items()}
 
@@ -1499,9 +1534,11 @@ def build_semantic_plan(
     }
 
     thresholds = {
+        "identifier": 0.60,
         "name": 0.60,
         "date": 0.60,
         "amount": 0.60,
+        "measurement": 0.60,
         "currency": 0.60,
         "status": 0.72,
         "department": 0.72,
@@ -1513,7 +1550,7 @@ def build_semantic_plan(
     confidences: dict[int, float] = {}
     taken_indices: set[int] = set()
 
-    for role in ("name", "date", "amount", "currency", "status", "department", "category", "notes"):
+    for role in ("identifier", "name", "date", "amount", "measurement", "currency", "status", "department", "category", "notes"):
         best_idx = None
         best_score = 0.0
         for idx, scores in candidate_scores.items():
@@ -1539,16 +1576,27 @@ def build_semantic_plan(
         ]
         if len(candidates) == 1:
             idx = candidates[0]
-            score = max(minimum, candidate_scores[idx].get(role, 0.0))
-            assignments[idx] = role
-            confidences[idx] = round(score, 2)
-            taken_indices.add(idx)
+            score = candidate_scores[idx].get(role, 0.0)
+            if score >= minimum:
+                assignments[idx] = role
+                confidences[idx] = round(score, 2)
+                taken_indices.add(idx)
 
+    assign_unique_detected_type("identifier", "ID/code")
     assign_unique_detected_type("name", "name")
     assign_unique_detected_type("date", "date")
     assign_unique_detected_type("amount", "currency/amount")
     assign_unique_detected_type("currency", "currency code")
     assign_unique_detected_type("notes", "free text", minimum=0.55)
+
+    for idx, scores in candidate_scores.items():
+        if idx in taken_indices:
+            continue
+        score = scores.get("measurement", 0.0)
+        if score >= thresholds["measurement"]:
+            assignments[idx] = "measurement"
+            confidences[idx] = round(score, 2)
+            taken_indices.add(idx)
 
     role_overrides = role_overrides or {}
     if role_overrides:
@@ -1570,13 +1618,13 @@ def build_semantic_plan(
     enabled = False
     if "amount" in primary_roles and len(primary_roles.intersection({"name", "date", "currency", "status", "department", "category"})) >= 2:
         enabled = True
-    elif len(primary_roles.intersection({"name", "date", "status", "department", "category", "notes"})) >= 3:
+    elif len(primary_roles.intersection({"identifier", "name", "date", "status", "department", "category", "notes", "measurement"})) >= 3 and primary_roles.intersection({"identifier", "date", "measurement"}):
         enabled = True
     if not enabled:
         return SemanticPlan(False, {}, {}, 0, None, None, None, [])
 
     label_idx = next(
-        (idx for role_name in ("name", "department", "category", "notes") for idx, assigned in assignments.items() if assigned == role_name),
+        (idx for role_name in ("name", "identifier", "department", "category", "notes") for idx, assigned in assignments.items() if assigned == role_name),
         0,
     )
     fill_down_indices = [
@@ -1824,6 +1872,14 @@ def apply_semantic_normalisations(
             new_value, changed, reason = normalise_date(original)
         elif role == "amount":
             new_value, changed, reason = normalise_amount(original)
+        elif role == "identifier":
+            new_value = " ".join(original.split()) if original.strip() else ""
+            changed = new_value != original
+            reason = "Identifier spacing normalised"
+        elif role == "measurement":
+            new_value = " ".join(original.split()) if original.strip() else ""
+            changed = new_value != original
+            reason = "Measurement text spacing normalised"
         elif role == "currency":
             new_value, changed, reason = normalise_currency(original)
         elif role == "name":
@@ -2148,6 +2204,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=[],
         help="Optional semantic override in the form <column_index>=<role> using 1-based indexes; role can also be 'ignore'",
     )
+    parser.add_argument(
+        "--confirm-plan",
+        dest="confirm_plan",
+        action="store_true",
+        help="Persist that the current workbook header/role plan was explicitly confirmed by the user",
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--sheet", dest="sheet_name", help="Workbook sheet name to heal")
     group.add_argument(
@@ -2181,12 +2243,25 @@ def parse_role_overrides(raw_overrides: list[str]) -> dict[int, str]:
     return overrides
 
 
-def build_structured_summary(result: dict, *, input_path: Path, output_path: Path) -> dict:
+def build_structured_summary(
+    result: dict,
+    *,
+    input_path: Path,
+    output_path: Path,
+    sheet_name: str | None = None,
+    consolidate_sheets: bool | None = None,
+    header_row_override: int | None = None,
+    role_overrides: dict[int, str] | None = None,
+    plan_confirmed: bool = False,
+) -> dict:
     contract = build_contract("csv_doctor.heal_summary")
     clean_rows = len(result["clean_data"])
     quarantine_rows = len(result["quarantine"])
     needs_review_rows = sum(1 for row in result["clean_data"] if row.needs_review)
     modified_rows = sum(1 for row in result["clean_data"] if row.was_modified)
+    applied_role_overrides = {
+        str(idx + 1): role for idx, role in sorted((role_overrides or {}).items())
+    }
     return {
         "contract": contract,
         "schema_version": contract["version"],
@@ -2207,6 +2282,13 @@ def build_structured_summary(result: dict, *, input_path: Path, output_path: Pat
             "action_counts": dict(result["action_counts"]),
             "quarantine_reason_counts": result["quarantine_reason_counts"],
         },
+        "workbook_plan": {
+            "sheet_name": sheet_name,
+            "consolidate_sheets": bool(consolidate_sheets),
+            "header_row_override": header_row_override,
+            "role_overrides": applied_role_overrides,
+            "plan_confirmed": plan_confirmed,
+        },
         "assumptions": list(result["assumptions"]),
         "run_summary": build_run_summary(
             tool="csv-doctor",
@@ -2221,6 +2303,8 @@ def build_structured_summary(result: dict, *, input_path: Path, output_path: Pat
                 "needs_review_rows": needs_review_rows,
                 "modified_rows": modified_rows,
                 "changes_logged": len(result["changelog"]),
+                "plan_confirmed": plan_confirmed,
+                "role_override_count": len(applied_role_overrides),
             },
         ),
     }
@@ -2320,7 +2404,16 @@ def main():
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(
             json.dumps(
-                build_structured_summary(result, input_path=input_path, output_path=output_path),
+                build_structured_summary(
+                    result,
+                    input_path=input_path,
+                    output_path=output_path,
+                    sheet_name=args.sheet_name,
+                    consolidate_sheets=True if args.all_sheets else None,
+                    header_row_override=args.header_row,
+                    role_overrides=role_overrides,
+                    plan_confirmed=args.confirm_plan,
+                ),
                 indent=2,
                 ensure_ascii=False,
             ),

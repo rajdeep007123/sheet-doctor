@@ -63,6 +63,26 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(summary["run_summary"]["script"], "heal.py")
         self.assertIn("clean_rows", summary["rows"])
 
+    def test_csv_heal_summary_persists_confirmed_workbook_plan(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "healed.xlsx"
+            result = execute_csv_healing(SAMPLE_CSV)
+            summary = build_csv_heal_summary(
+                result,
+                input_path=SAMPLE_CSV,
+                output_path=output_path,
+                sheet_name="Transactions",
+                consolidate_sheets=False,
+                header_row_override=3,
+                role_overrides={1: "department", 4: "amount"},
+                plan_confirmed=True,
+            )
+        self.assertEqual(summary["workbook_plan"]["sheet_name"], "Transactions")
+        self.assertEqual(summary["workbook_plan"]["header_row_override"], 3)
+        self.assertEqual(summary["workbook_plan"]["role_overrides"], {"2": "department", "5": "amount"})
+        self.assertTrue(summary["workbook_plan"]["plan_confirmed"])
+        self.assertTrue(summary["run_summary"]["metrics"]["plan_confirmed"])
+
     def test_excel_diagnose_emits_versioned_contract_and_run_summary(self):
         report = EXCEL_DIAGNOSE.build_report(SAMPLE_XLSX)
         self.assertEqual(report["contract"]["name"], "excel_doctor.diagnose")

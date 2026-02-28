@@ -32,7 +32,7 @@ LEGACY_PREVIEW_EXTS = {".xls", ".ods"}
 WORKBOOK_EXTS = MODERN_EXCEL_EXTS | LEGACY_PREVIEW_EXTS
 SUPPORTED_EXTS = TEXTUAL_EXTS | WORKBOOK_EXTS
 MAX_REMOTE_FILE_MB = 100
-SEMANTIC_ROLE_OPTIONS = ["auto", "ignore", "name", "date", "amount", "currency", "status", "department", "category", "notes"]
+SEMANTIC_ROLE_OPTIONS = ["auto", "ignore", "identifier", "name", "date", "amount", "measurement", "currency", "status", "department", "category", "notes"]
 
 
 @st.cache_resource(show_spinner=False)
@@ -537,12 +537,30 @@ def build_job(prompt: str, intent: str, sources: list[dict]) -> list[dict]:
             "header_row_override": header_row_override,
             "role_overrides": role_overrides,
             "tabular_rescue": tabular_rescue,
+            "plan_confirmed": bool(st.session_state.get(f"confirmplan_{source_id}", False)),
         }
         if item["ext"] in WORKBOOK_EXTS:
             item["sheet_name"] = st.session_state.get(f"sheet_{source_id}")
             item["consolidate"] = bool(st.session_state.get(f"consolidate_{source_id}", False))
         jobs.append(item)
     return jobs
+
+
+def pending_workbook_plan_confirmations(sources: list[dict], intent: str) -> list[str]:
+    if intent != "Make Readable":
+        return []
+
+    pending: list[str] = []
+    for idx, source in enumerate(sources):
+        if source["ext"] not in WORKBOOK_EXTS:
+            continue
+        source_id = f"{idx}_{source['source_label']}"
+        tabular_rescue = bool(st.session_state.get(f"tabular_{source_id}", source["ext"] in LEGACY_PREVIEW_EXTS))
+        if not tabular_rescue:
+            continue
+        if not st.session_state.get(f"confirmplan_{source_id}", False):
+            pending.append(source["name"])
+    return pending
 
 
 def process_one_item(item: dict, folder: Path) -> dict:
@@ -581,6 +599,7 @@ def process_one_item(item: dict, folder: Path) -> dict:
         "download_bytes": None,
         "messages": [],
         "workbook_semantics": None,
+        "heal_summary": None,
     }
 
     workbook_semantics = None
@@ -638,12 +657,18 @@ def process_one_item(item: dict, folder: Path) -> dict:
         result["status"] = "error"
         result["messages"].append("This format is not supported.")
         return result
+    if ext in WORKBOOK_EXTS and item.get("tabular_rescue") and not item.get("plan_confirmed"):
+        result["status"] = "error"
+        result["messages"].append("Workbook rescue plan must be confirmed before healing runs.")
+        return result
 
     output_name = f"{source_path.stem}_readable.xlsx"
     output_path = folder / output_name
 
     if ext in TEXTUAL_EXTS or (ext in WORKBOOK_EXTS and item.get("tabular_rescue")):
         heal_args = [str(source_path), str(output_path)]
+        summary_path = folder / f"{source_path.stem}_heal_summary.json"
+        heal_args.extend(["--json-summary", str(summary_path)])
         if ext in WORKBOOK_EXTS:
             if item.get("consolidate"):
                 heal_args.append("--all-sheets")
@@ -653,6 +678,8 @@ def process_one_item(item: dict, folder: Path) -> dict:
                 heal_args.extend(["--header-row", str(item["header_row_override"])])
             for column_index, role in sorted((item.get("role_overrides") or {}).items()):
                 heal_args.extend(["--role-override", f"{column_index + 1}={role}"])
+            if item.get("plan_confirmed"):
+                heal_args.append("--confirm-plan")
         completed = run_script(CSV_HEAL, *heal_args)
         result["stdout"] = completed.stdout.strip()
         result["stderr"] = completed.stderr.strip()
@@ -660,6 +687,8 @@ def process_one_item(item: dict, folder: Path) -> dict:
             result["status"] = "error"
             result["messages"].append(result["stdout"] or result["stderr"] or "Healing failed.")
             return result
+        if summary_path.exists():
+            result["heal_summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
     elif ext in MODERN_EXCEL_EXTS:
         completed = run_script(EXCEL_HEAL, str(source_path), str(output_path))
         result["stdout"] = completed.stdout.strip()
@@ -839,6 +868,11 @@ def render_results() -> None:
                     render_excel_report(item["report"])
             if item.get("stdout"):
                 st.code(item["stdout"])
+            if item.get("heal_summary"):
+                workbook_plan = item["heal_summary"].get("workbook_plan") or {}
+                if workbook_plan:
+                    st.caption("Structured healing summary captured")
+                    st.json(workbook_plan)
             if item.get("download_bytes") and item.get("download_name"):
                 st.download_button(
                     "Download fixed file",
@@ -1158,6 +1192,36 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
                         continue
 
                 render_workbook_semantics(inspection)
+                if st.session_state.get(tabular_key, ext in LEGACY_PREVIEW_EXTS):
+                    confirm_key = f"confirmplan_{source_id}"
+                    signature_key = f"plansignature_{source_id}"
+                    plan_signature = json.dumps(
+                        {
+                            "sheet_name": selected_sheet,
+                            "consolidate": consolidate,
+                            "header_row_override": int(header_override),
+                            "role_overrides": {str(k + 1): v for k, v in sorted(role_overrides.items())},
+                            "final_roles": {
+                                str(entry["column_index"]): entry["role"]
+                                for entry in inspection.get("semantic_columns", [])
+                            },
+                        },
+                        sort_keys=True,
+                    )
+                    if st.session_state.get(signature_key) != plan_signature:
+                        st.session_state[signature_key] = plan_signature
+                        st.session_state[confirm_key] = False
+
+                    confirmed = st.checkbox(
+                        f"Confirm workbook rescue plan for {item['name']}",
+                        key=confirm_key,
+                        disabled=disabled,
+                        help="Required before tabular rescue runs. The confirmed header row and semantic overrides will be persisted into the JSON healing summary.",
+                    )
+                    if confirmed:
+                        st.success("Workbook rescue plan confirmed.")
+                    else:
+                        st.warning("Confirm this workbook plan before running tabular rescue.")
 
 
 def main() -> None:
@@ -1200,7 +1264,18 @@ def main() -> None:
             key="intent_input",
             disabled=processing,
         )
-        submit = st.button("Run", type="primary", width="stretch", disabled=processing or not sources)
+        pending_confirmations = pending_workbook_plan_confirmations(sources, intent) if sources else []
+        if pending_confirmations:
+            st.warning(
+                "Confirm the workbook rescue plan before running: "
+                + ", ".join(sorted(pending_confirmations))
+            )
+        submit = st.button(
+            "Run",
+            type="primary",
+            width="stretch",
+            disabled=processing or not sources or bool(pending_confirmations),
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
     if submit and sources:

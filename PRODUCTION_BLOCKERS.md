@@ -56,6 +56,7 @@ first because the later items depend on them or matter less to user trust.
     - stacked workbook header bands are now merged into one semantic header row in the tested path
     - sparse edge-column trimming now keeps ragged clinical/report layouts semantic-healable in the tested path
     - semantic mode now also covers tested non-financial workbook reports with `name` / `date` / `status` / `department` / `notes` columns
+    - tested public clinical/scientific workbooks can now infer `identifier` and repeated `measurement` columns instead of dropping straight to generic mode
     - UI users can now override the header row and semantic column roles before tabular rescue healing
 
 - [x] Post-heal scoring and recoverability reporting

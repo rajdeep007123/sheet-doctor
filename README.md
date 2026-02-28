@@ -83,10 +83,12 @@ Workbook-semantic behavior:
 - ragged workbook/report layouts with sparse leading or trailing columns now trim those sparse edges before header and semantic detection
 - clinical/report-style workbook columns such as `Ward` now participate in semantic fill-down so merged-cell style blanks remain readable after healing
 - non-financial workbook tables can now enter `semantic` mode when they still strongly map to roles such as `name`, `date`, `status`, `department`, and `notes`
+- scientific/clinical workbook tables can now infer `identifier` and repeated `measurement` columns, so messy public workbook corpora do not immediately drop to generic mode
 
 Deployable machine outputs:
 - JSON-producing scripts now emit `contract`, `schema_version`, `tool_version`, and `run_summary`
 - `csv-doctor/heal.py` and `excel-doctor/heal.py` now support `--json-summary <path>` for backend/UI ingestion
+- `csv-doctor/heal.py` summaries now persist confirmed workbook rescue choices, including selected sheet, confirmed header row, semantic role overrides, and whether the user explicitly confirmed the plan
 - Stable schema docs live in [`schemas/`](./schemas)
 - CI validates compile health, unit tests, and the sample CSV pipeline on every push/PR
 
@@ -215,6 +217,7 @@ What the UI currently does:
 - Let the user override the detected workbook header row before healing
 - Let the user override semantic column roles in the UI before tabular rescue healing
 - Show a detected-vs-final mapping comparison so users can see what changed before they run rescue
+- Require explicit confirmation of the workbook rescue plan before tabular rescue runs
 - Route to diagnose or heal flows
 - Process files sequentially with an in-app progress loader
 - Show source-specific notes for special URL handling such as Google Sheets export

@@ -17,6 +17,16 @@
     "tool_version": {"type": "string"},
     "run_summary": {"type": "object"},
     "mode": {"type": "string"},
-    "rows": {"type": "object"}
+    "rows": {"type": "object"},
+    "workbook_plan": {
+      "type": "object",
+      "properties": {
+        "sheet_name": {"type": ["string", "null"]},
+        "consolidate_sheets": {"type": "boolean"},
+        "header_row_override": {"type": ["integer", "null"]},
+        "role_overrides": {"type": "object"},
+        "plan_confirmed": {"type": "boolean"}
+      }
+    }
   }
 }
