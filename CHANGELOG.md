@@ -11,6 +11,7 @@ All notable changes to sheet-doctor are documented here.
   - Reports hidden and very-hidden sheets separately
   - Detects header bands, metadata/preamble rows, notes-like rows, structural subtotal rows, and empty edge columns
   - Reports formula cells alongside formula errors and cache misses
+  - Emits explicit manual-review warnings when formula logic, hidden sheets, or heuristic header detection still require spreadsheet judgment
   - Emits sheet-level risk summaries plus a workbook-level summary
   - Rejects `.xls` explicitly and rejects encrypted OOXML workbooks with a stable user-facing error
 - **`excel-doctor` / `heal.py`** — workbook-native healing is now safer and clearer:
@@ -26,11 +27,14 @@ All notable changes to sheet-doctor are documented here.
   - `tests/fixtures/excel/merged_edges.xlsx`
   - `tests/fixtures/excel/text_date_cleanup.xlsx`
   - `tests/fixtures/excel/duplicate_headers.xlsx`
+  - `tests/fixtures/excel/notes_totals.xlsx`
+  - `tests/fixtures/excel/ragged_clinical.xlsx`
   - `tests/test_excel_doctor.py` now covers diagnosis findings, workbook-native healing fixes, encrypted/corrupt failures, atomic output protection, `.xlsm` support, and UI mode separation
 - **`web/app.py`** — workbook mode separation is now explicit in the UI:
   - Shows whether a workbook will run in `workbook-native`, `tabular-rescue`, or `tabular-rescue-fallback` mode
   - Explains why that mode was chosen and the tradeoff before the run starts
   - Workbook-native runs now keep `.xlsm` output names and capture Excel-heal JSON summaries
+  - Workbook-native reports and heal summaries now surface formula/manual-review warnings directly in the results view
 - **`csv-doctor` / `heal.py`** — split into smaller modules under `skills/csv-doctor/scripts/heal_modules/`:
   - Shared constants/dataclasses now live in `shared.py`
   - Row/header preprocessing now lives in `preprocessing.py`

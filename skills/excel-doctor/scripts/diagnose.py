@@ -414,6 +414,22 @@ def build_summary(report: dict) -> dict:
     }
 
 
+def build_manual_review_warnings(report: dict) -> list[str]:
+    counts = report["issue_counts"]
+    warnings = []
+    if counts["formula_cells"] > 0:
+        warnings.append("Formula cells are present. excel-doctor preserves formulas and does not recalculate business logic.")
+    if counts["formula_errors"] > 0:
+        warnings.append("Formula error cells still need manual spreadsheet review. excel-doctor does not repair broken formulas.")
+    if counts["formula_cache_misses"] > 0:
+        warnings.append("Some formula cells have no cached values. Reopen the workbook in Excel and save after recalculation if the cached results matter.")
+    if counts["hidden_sheets"] > 0 or counts["very_hidden_sheets"] > 0:
+        warnings.append("Hidden sheets exist. Workbook context may depend on tabs the user cannot currently see.")
+    if counts["header_bands"] > 0 or counts["metadata_rows"] > 0:
+        warnings.append("Header-band and metadata-row detection is heuristic. Confirm the detected table starts before trusting downstream analysis.")
+    return warnings
+
+
 def build_report(file_path: Path) -> dict:
     if is_encrypted_ooxml(file_path):
         raise ValueError("Password-protected / encrypted OOXML workbooks are not supported")
@@ -578,6 +594,7 @@ def build_report(file_path: Path) -> dict:
     }
     report["summary"] = build_summary(report)
     report["issue_counts"] = count_issue_events(report)
+    report["manual_review_warnings"] = build_manual_review_warnings(report)
     report["workbook_summary"] = {
         "sheets_total": sheets_info["count"],
         "data_sheets_evaluated": len(sheet_summaries),
@@ -593,6 +610,7 @@ def build_report(file_path: Path) -> dict:
             "sheets_total": sheets_info["count"],
             "issues_found": report["summary"]["issue_count"],
             "issue_categories_triggered": report["summary"]["issue_categories_triggered"],
+            "manual_review_warnings": len(report["manual_review_warnings"]),
             "verdict": report["summary"]["verdict"],
             "mode": "workbook-native",
         },

@@ -68,6 +68,7 @@ It reports:
 - likely notes / metadata rows
 - per-sheet risk summaries
 - workbook-level summary
+- manual-review warnings when formulas, hidden sheets, or heuristic header detection mean cleanup is not the same as business-safe interpretation
 
 If something cannot be known safely, it should be called out as a limitation rather than guessed.
 

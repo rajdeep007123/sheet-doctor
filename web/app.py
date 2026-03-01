@@ -826,6 +826,9 @@ def render_excel_report(report: dict) -> None:
         f"**Issues found:** `{summary.get('issue_count', 0)}`  \n"
         f"**Categories triggered:** `{summary.get('issue_categories_triggered', 0)}`"
     )
+    warnings = report.get("manual_review_warnings") or []
+    if warnings:
+        st.warning("Workbook-native manual review:\n- " + "\n- ".join(warnings))
     st.json(report)
 
 
@@ -932,6 +935,9 @@ def render_results() -> None:
                 if workbook_plan:
                     st.caption("Structured healing summary captured")
                     st.json(workbook_plan)
+                heal_warnings = item["heal_summary"].get("warnings") or []
+                if heal_warnings:
+                    st.warning("Workbook-native healing warnings:\n- " + "\n- ".join(heal_warnings))
             if item.get("download_bytes") and item.get("download_name"):
                 st.download_button(
                     "Download fixed file",

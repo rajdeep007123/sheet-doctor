@@ -269,6 +269,7 @@ Remote file-type detection:
 - `csv-doctor` is strongest on flat tabular data. Workbook rescue is a heuristic flatten-and-clean flow, not workbook-native reconstruction.
 - `excel-doctor` is workbook-native only for `.xlsx` / `.xlsm`. It does not support workbook-native `.xls` repair.
 - `excel-doctor` preserves formula cells as formulas. It does not recalculate formula results or reconstruct missing formula caches.
+- `excel-doctor` now surfaces explicit manual-review warnings when formula cells, formula errors, or formula cache misses are present; those warnings are not auto-fix guarantees.
 - `.xlsm` macros are only preserved when the output stays `.xlsm`.
 - Password-protected / encrypted Excel files are not supported.
 - Corrupted workbooks fail with explicit errors; they are not partially reconstructed.
@@ -398,6 +399,7 @@ python skills/excel-doctor/scripts/diagnose.py /path/to/workbook.xlsm
 - Detects hidden/very-hidden sheets, merged ranges, header bands, metadata/preamble rows, formula cells/errors/cache misses, duplicate/whitespace headers, empty rows/columns, empty edge columns, and mixed-type columns
 - Heals safe structural/text/date issues while preserving workbook sheets and formulas
 - Does not recalculate formulas, recover missing cache values, or repair encrypted/corrupted workbooks beyond failing cleanly
+- Emits workbook-native manual-review warnings when formulas, hidden sheets, or heuristic header-band detection mean spreadsheet context still matters after cleanup
 
 ---
 

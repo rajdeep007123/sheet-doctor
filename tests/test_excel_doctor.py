@@ -71,11 +71,25 @@ class ExcelDoctorTests(unittest.TestCase):
         self.assertIn("Calc", report["formula_cache_misses"])
         self.assertIn("Calc", report["structural_rows"])
         self.assertTrue(any(row["label"] == "TOTAL" for row in report["structural_rows"]["Calc"]))
+        self.assertTrue(any("does not repair broken formulas" in warning for warning in report["manual_review_warnings"]))
 
     def test_duplicate_header_fixture_reports_duplicates_and_mixed_types(self):
         report = EXCEL_DIAGNOSE.build_report(FIXTURE_DIR / "duplicate_headers.xlsx")
         self.assertEqual(report["duplicate_headers"]["Dupes"], ["customer_id"])
         self.assertIn("amount", report["mixed_types"]["Dupes"])
+
+    def test_notes_totals_fixture_reports_notes_and_totals(self):
+        report = EXCEL_DIAGNOSE.build_report(FIXTURE_DIR / "notes_totals.xlsx")
+        self.assertIn("Ledger", report["notes_rows"])
+        self.assertIn("Ledger", report["structural_rows"])
+        self.assertTrue(any(row["label"] == "TOTAL" for row in report["structural_rows"]["Ledger"]))
+
+    def test_ragged_clinical_fixture_reports_metadata_header_band_and_edge_columns(self):
+        report = EXCEL_DIAGNOSE.build_report(FIXTURE_DIR / "ragged_clinical.xlsx")
+        self.assertEqual(report["metadata_rows"]["Clinical"], [1, 2])
+        self.assertEqual(report["sheet_summaries"]["Clinical"]["header_row"], 3)
+        self.assertIn("Clinical", report["empty_edge_columns"])
+        self.assertTrue(any("Header-band and metadata-row detection is heuristic" in warning for warning in report["manual_review_warnings"]))
 
     def test_heal_unmerges_ranges_flattens_headers_and_adds_change_log(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -128,6 +142,19 @@ class ExcelDoctorTests(unittest.TestCase):
         self.assertEqual(summary["mode"], "workbook-native")
         self.assertEqual(summary["run_summary"]["metrics"]["mode"], "workbook-native")
 
+    def test_structured_summary_includes_formula_preservation_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "formula_cases_healed.xlsx"
+            changes, stats = EXCEL_HEAL.execute_healing(FIXTURE_DIR / "formula_cases.xlsx", output_path)
+            summary = EXCEL_HEAL.build_structured_summary(
+                input_path=FIXTURE_DIR / "formula_cases.xlsx",
+                output_path=output_path,
+                changes=changes,
+                stats=stats,
+            )
+        self.assertGreater(stats["formula_cells_preserved"], 0)
+        self.assertTrue(any("does not recalculate formulas" in warning for warning in summary["warnings"]))
+
     def test_execute_healing_is_atomic_on_failure(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path = FIXTURE_DIR / "hidden_layers.xlsx"
@@ -172,6 +199,19 @@ class ExcelDoctorTests(unittest.TestCase):
         self.assertEqual(legacy["mode"], "tabular-rescue-fallback")
         self.assertIn("flattened", tabular["tradeoff"])
         self.assertIn("preserving workbook", native["why"])
+
+    def test_xlsm_summary_warns_about_macro_preservation_limit(self):
+        fixture = LOADER_FIXTURE_DIR / "multisheet.xlsm"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "multisheet_healed.xlsm"
+            changes, stats = EXCEL_HEAL.execute_healing(fixture, output_path)
+            summary = EXCEL_HEAL.build_structured_summary(
+                input_path=fixture,
+                output_path=output_path,
+                changes=changes,
+                stats=stats,
+            )
+        self.assertTrue(any("macro preservation" in warning for warning in summary["warnings"]))
 
 
 if __name__ == "__main__":

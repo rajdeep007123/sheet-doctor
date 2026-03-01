@@ -403,6 +403,11 @@ def execute_healing(input_path: Path, output_path: Path) -> tuple[list[Change], 
 
 def build_structured_summary(*, input_path: Path, output_path: Path, changes: list[Change], stats: Counter) -> dict:
     contract = build_contract("excel_doctor.heal_summary")
+    warnings = []
+    if stats["formula_cells_preserved"] > 0:
+        warnings.append("Formula cells were preserved unchanged. excel-doctor does not recalculate formulas.")
+    if input_path.suffix.lower() == ".xlsm":
+        warnings.append(".xlsm macro preservation only holds while the output remains .xlsm.")
     return {
         "contract": contract,
         "schema_version": contract["version"],
@@ -412,6 +417,7 @@ def build_structured_summary(*, input_path: Path, output_path: Path, changes: li
         "mode": "workbook-native",
         "stats": dict(stats),
         "changes_logged": len(changes),
+        "warnings": warnings,
         "assumptions": [
             "Workbook-native healing preserves workbook sheets instead of flattening them into a CSV-style table",
             "Ambiguous DD/MM vs MM/DD dates prefer day-first when both parse",
@@ -486,6 +492,12 @@ def main():
     print(f"    · Empty rows removed          : {stats['empty_rows_removed']}")
     print(f"    · Edge columns trimmed        : {stats['edge_columns_trimmed']}")
     print("─" * 62)
+    if stats["formula_cells_preserved"] > 0:
+        print("  WARNINGS:")
+        print("    · Formula cells were preserved unchanged; excel-doctor does not recalculate formulas")
+        if input_path.suffix.lower() == ".xlsm":
+            print("    · .xlsm macro preservation only holds while the output remains .xlsm")
+        print("─" * 62)
     print("  ASSUMPTIONS:")
     print("    · Workbook-native healing preserves workbook sheets instead of flattening them into a CSV-style table")
     print("    · Ambiguous DD/MM vs MM/DD dates prefer day-first when both parse")
