@@ -37,3 +37,5 @@ Notes specific to the local `web/app.py` interface live here so UI work can move
   - per-column semantic role override controls
   - optional tabular rescue mode for modern workbook files when users want a 3-sheet readable output instead of workbook-preserving healing
   - a required confirmation step before workbook tabular rescue runs
+  - explicit workbook mode messaging that tells the user whether a workbook will run as `workbook-native`, `tabular-rescue`, or `tabular-rescue-fallback`, why that mode was chosen, and what tradeoff it implies
+- Workbook-native Excel runs now keep `.xlsm` output names and persist Excel-heal JSON summaries for the results view

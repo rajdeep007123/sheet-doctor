@@ -18,8 +18,8 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 | `csv-doctor` | `diagnose.py` | Structural diagnostics plus column semantics: encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers, inferred column types, per-column quality stats, suspected issues |
 | `csv-doctor` | `column_detector.py` | Standalone per-column semantic inference and quality profiling for messy tabular data, even when headers are weak or wrong |
 | `csv-doctor` | `heal.py` | Schema-aware healing (`schema-specific`, `semantic`, `generic`) — outputs a 3-sheet Excel workbook (Clean Data / Quarantine / Change Log) with edge-case handling for formula residue, notes rows, subtotal rows, metadata/header rows, merged-cell export gaps, misplaced currency values, and explicit workbook sheet selection |
-| `excel-doctor` | `diagnose.py` | Deep Excel diagnostics: sheet inventory, merged cells, formula errors/cache misses, mixed types, duplicate/whitespace headers, structural rows, sparse columns |
-| `excel-doctor` | `heal.py` | Safe workbook fixes: unmerge ranges, standardise/dedupe headers, clean text/date values, remove empty rows, append Change Log |
+| `excel-doctor` | `diagnose.py` | Workbook-native Excel diagnostics for `.xlsx/.xlsm`: hidden/very-hidden sheets, merged cells, header bands, metadata rows, formula cells/errors/cache misses, mixed types, duplicate/whitespace headers, empty edge columns |
+| `excel-doctor` | `heal.py` | Workbook-native Excel cleanup for `.xlsx/.xlsm`: unmerge ranges, flatten safe stacked headers, remove metadata rows and empty rows, trim empty edge columns, clean text/date values, preserve formulas, append Change Log |
 | `web` | `app.py` | Local Streamlit UI — upload files or paste public file URLs, describe what you want, preview the table, and download a human-readable workbook |
 
 More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
@@ -96,7 +96,7 @@ Deployable machine outputs:
 
 ## Supported file formats
 
-`csv-doctor` does not support every format equally. This is the real matrix:
+`csv-doctor` does not support every format equally. This matrix is for the tabular `csv-doctor` path:
 
 | Format | Loader | Diagnose | Heal | UI |
 |--------|--------|----------|------|----|
@@ -246,6 +246,11 @@ Current UI healing matrix:
 - `.xlsx .xlsm` → `excel-doctor/heal.py` by default, or `csv-doctor/heal.py` in optional tabular rescue mode
 - `.xls .ods` → `csv-doctor/heal.py` in tabular rescue mode when the workbook looks tabular enough, otherwise loader-based readable export fallback
 
+Workbook modes in the UI:
+- `excel-doctor` = workbook-native cleanup for `.xlsx/.xlsm`
+- `csv-doctor` tabular rescue = flatten a workbook sheet into a readable 3-sheet table rescue
+- `.xls` / `.ods` do not have workbook-native healing here; they stay on the tabular/fallback path
+
 Public URL support:
 - GitHub file URLs (`blob` links are rewritten to raw)
 - Dropbox public links
@@ -262,7 +267,11 @@ Remote file-type detection:
 ## Known limitations
 
 - `csv-doctor` is strongest on flat tabular data. Workbook rescue is a heuristic flatten-and-clean flow, not workbook-native reconstruction.
+- `excel-doctor` is workbook-native only for `.xlsx` / `.xlsm`. It does not support workbook-native `.xls` repair.
+- `excel-doctor` preserves formula cells as formulas. It does not recalculate formula results or reconstruct missing formula caches.
+- `.xlsm` macros are only preserved when the output stays `.xlsm`.
 - Password-protected / encrypted Excel files are not supported.
+- Corrupted workbooks fail with explicit errors; they are not partially reconstructed.
 - `.parquet` is not supported.
 - Large files are still processed in memory. Guardrails prevent obviously unsafe runs, but this is not a streaming pipeline.
 - happy-path `.xls` coverage remains optional/manual in CI because the repo does not currently ship a committed writable legacy `.xls` fixture
@@ -275,6 +284,7 @@ Remote file-type detection:
 - It does not merge multiple files into one reconciled dataset.
 - It does not do fuzzy entity resolution for vendors, customers, or employees.
 - It does not preserve workbook-native logic when you choose tabular rescue; that path flattens the sheet into rows and columns.
+- It does not perform workbook-native healing for `.xls`.
 - It does not stream huge files; the current pipeline still loads data in memory.
 - It does not promise business-truth validation. It cleans structure and common data mess, not accounting correctness or domain correctness.
 
@@ -377,7 +387,17 @@ python skills/excel-doctor/scripts/diagnose.py sample-data/messy_sample.xlsx
 
 # Heal — outputs messy_sample_healed.xlsx with a Change Log tab
 python skills/excel-doctor/scripts/heal.py sample-data/messy_sample.xlsx
+
+# Diagnose an .xlsm workbook while keeping workbook-native semantics
+python skills/excel-doctor/scripts/diagnose.py /path/to/workbook.xlsm
 ```
+
+`excel-doctor` scope, honestly:
+- Supports workbook-native diagnosis and healing for `.xlsx` and `.xlsm`
+- Rejects `.xls` with an explicit “use csv-doctor tabular rescue or convert to .xlsx first” message
+- Detects hidden/very-hidden sheets, merged ranges, header bands, metadata/preamble rows, formula cells/errors/cache misses, duplicate/whitespace headers, empty rows/columns, empty edge columns, and mixed-type columns
+- Heals safe structural/text/date issues while preserving workbook sheets and formulas
+- Does not recalculate formulas, recover missing cache values, or repair encrypted/corrupted workbooks beyond failing cleanly
 
 ---
 

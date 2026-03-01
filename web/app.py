@@ -390,13 +390,38 @@ def preview_payload(loaded: dict, workbook_semantics: Optional[dict] = None) -> 
     }
 
 
-def heal_support_message(ext: str) -> tuple[bool, str]:
+def workbook_mode_details(ext: str, tabular_rescue: bool = False) -> Optional[dict]:
+    if ext in MODERN_EXCEL_EXTS:
+        if tabular_rescue:
+            return {
+                "mode": "tabular-rescue",
+                "why": "Use this when the workbook is really a messy table and you want a flattened 3-sheet rescue output.",
+                "tradeoff": "Workbook structure, formulas, and sheet-native layout are flattened into rows/columns.",
+            }
+        return {
+            "mode": "workbook-native",
+            "why": "Use this when preserving workbook sheets and workbook structure matters more than flattening the data.",
+            "tradeoff": "The output stays a workbook and only safe sheet-level cleanup is applied; it does not become a Clean Data / Quarantine table rescue.",
+        }
+    if ext in LEGACY_PREVIEW_EXTS:
+        return {
+            "mode": "tabular-rescue-fallback",
+            "why": "Legacy workbook support is routed through csv-doctor or a readable export fallback because excel-doctor does not support workbook-native .xls/.ods repair.",
+            "tradeoff": "Workbook-native structure is not preserved.",
+        }
+    return None
+
+
+def heal_support_message(ext: str, tabular_rescue: bool = False) -> tuple[bool, str]:
     if ext in TEXTUAL_EXTS:
         return True, "CSV doctor will heal this into a 3-sheet workbook."
     if ext in MODERN_EXCEL_EXTS:
-        return True, "Excel doctor will preserve the workbook and add a Change Log."
+        details = workbook_mode_details(ext, tabular_rescue=tabular_rescue)
+        if details and details["mode"] == "tabular-rescue":
+            return True, "CSV doctor tabular rescue will flatten this workbook into a 3-sheet readable workbook."
+        return True, "Excel doctor will preserve the workbook structure and add a Change Log."
     if ext in LEGACY_PREVIEW_EXTS:
-        return True, "Legacy workbook support uses a readable export fallback rather than full workbook healing."
+        return True, "Legacy workbook support uses tabular rescue or a readable export fallback rather than workbook-native healing."
     return False, "This format is not supported."
 
 
@@ -595,14 +620,14 @@ def process_one_item(item: dict, folder: Path) -> dict:
         if len(sheet_names) > 1:
             item["sheet_name"] = sheet_names[0]
 
-    support_heal, support_message = heal_support_message(ext)
-    if ext in WORKBOOK_EXTS and item.get("tabular_rescue"):
-        support_message = "Tabular rescue mode will heal this workbook into a 3-sheet readable workbook using workbook semantic detection."
+    support_heal, support_message = heal_support_message(ext, tabular_rescue=bool(item.get("tabular_rescue")))
+    mode_details = workbook_mode_details(ext, tabular_rescue=bool(item.get("tabular_rescue")))
     result = {
         "name": item["name"],
         "ext": ext,
         "intent": item["intent"],
         "support_message": support_message,
+        "mode_details": mode_details,
         "status": "success",
         "preview": None,
         "report": None,
@@ -676,7 +701,12 @@ def process_one_item(item: dict, folder: Path) -> dict:
         result["messages"].append("Workbook rescue plan must be confirmed before healing runs.")
         return result
 
-    output_name = f"{source_path.stem}_readable.xlsx"
+    if ext in MODERN_EXCEL_EXTS and not item.get("tabular_rescue"):
+        output_name = f"{source_path.stem}_healed{source_path.suffix}"
+        download_mime = "application/vnd.ms-excel.sheet.macroEnabled.12" if ext == ".xlsm" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        output_name = f"{source_path.stem}_readable.xlsx"
+        download_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     output_path = folder / output_name
 
     if ext in TEXTUAL_EXTS or (ext in WORKBOOK_EXTS and item.get("tabular_rescue")):
@@ -704,13 +734,16 @@ def process_one_item(item: dict, folder: Path) -> dict:
         if summary_path.exists():
             result["heal_summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
     elif ext in MODERN_EXCEL_EXTS:
-        completed = run_script(EXCEL_HEAL, str(source_path), str(output_path))
+        summary_path = folder / f"{source_path.stem}_excel_heal_summary.json"
+        completed = run_script(EXCEL_HEAL, str(source_path), str(output_path), "--json-summary", str(summary_path))
         result["stdout"] = completed.stdout.strip()
         result["stderr"] = completed.stderr.strip()
         if completed.returncode != 0:
             result["status"] = "error"
             result["messages"].append(result["stdout"] or result["stderr"] or "Healing failed.")
             return result
+        if summary_path.exists():
+            result["heal_summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
     else:
         loaded = create_readable_export(
             source_path,
@@ -723,6 +756,7 @@ def process_one_item(item: dict, folder: Path) -> dict:
         result["messages"].extend(loaded.get("warnings") or [])
 
     result["download_name"] = output_name
+    result["download_mime"] = download_mime
     result["download_bytes"] = output_path.read_bytes()
     return result
 
@@ -852,6 +886,16 @@ def render_workbook_semantics(inspection: dict) -> None:
         st.caption(f"Applied overrides: {inspection['applied_role_overrides']}")
 
 
+def render_mode_details(mode_details: Optional[dict]) -> None:
+    if not mode_details:
+        return
+    st.markdown(
+        f"**Mode:** `{mode_details['mode']}`  \n"
+        f"**Why:** {mode_details['why']}  \n"
+        f"**Tradeoff:** {mode_details['tradeoff']}"
+    )
+
+
 def render_results() -> None:
     results = st.session_state.get("results") or []
     if not results:
@@ -866,6 +910,7 @@ def render_results() -> None:
     for item in results:
         with st.expander(f"{item['name']}  •  {item['status'].upper()}", expanded=item["status"] != "success"):
             st.caption(item["support_message"])
+            render_mode_details(item.get("mode_details"))
             for message in item.get("messages", []):
                 if item["status"] == "error":
                     st.error(message)
@@ -892,7 +937,7 @@ def render_results() -> None:
                     "Download fixed file",
                     data=item["download_bytes"],
                     file_name=item["download_name"],
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    mime=item.get("download_mime") or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     width="stretch",
                     key=f"download_{item['name']}_{item['status']}",
                 )
@@ -1058,7 +1103,8 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
 
     for idx, item in enumerate(sources):
         ext = item["ext"]
-        support_heal, support_message = heal_support_message(ext)
+        tabular_default = ext in LEGACY_PREVIEW_EXTS
+        support_heal, support_message = heal_support_message(ext, tabular_rescue=tabular_default)
         with st.expander(source_label(item), expanded=idx == 0 and count <= 3):
             st.caption(support_message)
             note = source_note(item)
@@ -1107,11 +1153,12 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
             consolidate = bool(st.session_state.get(consolidate_key, False))
             st.checkbox(
                 f"Use tabular rescue mode for {item['name']}",
-                value=ext in LEGACY_PREVIEW_EXTS,
+                value=tabular_default,
                 key=tabular_key,
                 disabled=disabled,
                 help="Use csv-doctor semantic rescue to create a 3-sheet readable workbook. Leave this off to keep workbook-preserving healing for .xlsx/.xlsm.",
             )
+            render_mode_details(workbook_mode_details(ext, tabular_rescue=bool(st.session_state.get(tabular_key, tabular_default))))
 
             if item["source_kind"] == "url":
                 inspection, semantic_error = inspect_remote_workbook_semantics(

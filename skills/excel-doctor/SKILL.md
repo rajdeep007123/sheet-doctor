@@ -1,204 +1,194 @@
 # excel-doctor
 
-Excel quality skill for `.xlsx` / `.xlsm` files with two scripts:
-- `diagnose.py` for deep diagnostics (JSON health report)
-- `heal.py` for safe auto-fixes + a workbook `Change Log` tab
+Workbook-native Excel quality skill for `.xlsx` and `.xlsm` files.
+
+Use this skill when the user wants to inspect or clean a real Excel workbook while preserving workbook structure as much as safely possible.
+
+Scripts:
+- `diagnose.py` — workbook-native diagnostics to JSON
+- `heal.py` — workbook-native cleanup plus a `Change Log` sheet
+
+Do not use this skill for:
+- `.xls` workbook-native repair
+- `.ods`
+- generic flat-file rescue where a 3-sheet tabular output is preferred
+
+For those cases, use `csv-doctor` tabular rescue instead.
 
 ---
 
 ## Trigger phrases
 
 Use this skill when the user says things like:
-- "diagnose this Excel file"
-- "what's wrong with my spreadsheet"
-- "check this Excel for errors"
-- "analyse my .xlsx"
-- "fix this Excel file" / "heal this workbook"
+- "diagnose this Excel workbook"
+- "what is wrong with this .xlsx"
+- "fix this .xlsm while keeping the workbook"
+- "check hidden sheets / merged cells / formulas"
+- "analyse this spreadsheet without flattening it"
 - `/excel-doctor`
 
 ---
 
-## What this skill checks (13 checks)
+## Real scope
 
-### 1. Sheet inventory
-Lists all sheets in the workbook and flags any that are completely empty or hidden. Hidden sheets are a common source of confusion — formulas may reference data the user can't see.
+Supported workbook-native inputs:
+- `.xlsx`
+- `.xlsm`
 
-### 2. Merged cells
-Merged cells break pandas, Power Query, and most data pipelines. Reports every merged range per sheet (e.g. `G2:G3`).
+Not supported workbook-native:
+- `.xls` — reject with an explicit message telling the user to use `csv-doctor` tabular rescue or convert to `.xlsx`
+- password-protected / encrypted OOXML workbooks — reject cleanly
+- corrupt workbooks — fail cleanly, do not promise reconstruction
 
-### 3. Formula errors
-Scans every cell for Excel error values: `#REF!`, `#VALUE!`, `#DIV/0!`, `#NAME?`, `#NULL!`, `#N/A`, `#NUM!`. Catches both cells with an actual error type (`cell.data_type == 'e'`) and string values that look like error text. Reports cell coordinates and error type per sheet.
+---
 
-### 4. Formula cache misses
-Loads the workbook both with and without `data_only`. Flags formula cells that have no cached value (common when file wasn't recalculated before export). Reports cell and formula.
+## What `diagnose.py` checks
 
-### 5. Mixed data types in columns
-A column containing both numbers and strings (e.g. `125.50` mixed with `"N/A"`) causes silent failures in most tools. Reports affected columns with one example value per type found.
+`diagnose.py` is workbook-native. It does not flatten the workbook first.
 
-### 6. Empty rows
-Finds fully blank rows per sheet. Reports count and row numbers.
+It reports:
+- all sheet names
+- hidden sheets
+- very-hidden sheets
+- empty sheets
+- merged ranges
+- formula cells
+- formula errors
+- formula cache misses
+- duplicate headers
+- whitespace headers
+- header bands / stacked headers
+- metadata / preamble rows before the real header
+- empty rows
+- empty columns
+- empty edge columns
+- mixed-type columns
+- mixed date formats in text-like date columns
+- likely subtotal / total rows
+- likely notes / metadata rows
+- per-sheet risk summaries
+- workbook-level summary
 
-### 7. Empty columns
-Finds columns where the header exists but every data cell is empty. Reports column names per sheet.
+If something cannot be known safely, it should be called out as a limitation rather than guessed.
 
-### 8. Duplicate headers
-Checks for column names that appear more than once in the header row. Duplicate headers silently break most tools that consume the file.
+---
 
-### 9. Header whitespace
-Flags headers with leading/trailing spaces (e.g. `" amount"` or `"status "`), which create hard-to-see schema bugs.
+## What `heal.py` does
 
-### 10. Date format consistency
-Scans string-typed cells in columns that look date-like and flags any column where more than one format is in use (e.g. `YYYY-MM-DD` mixed with `DD/MM/YYYY`). Note: cells Excel has already typed as `datetime` objects are correctly typed and not flagged.
+`heal.py` performs safe workbook-native cleanup:
+- unmerges ranges and fills child cells from the anchor value
+- flattens stacked header bands when they look like real table headers
+- removes metadata / preamble rows before the real table header
+- standardises / deduplicates headers
+- trims fully empty edge columns
+- removes fully empty rows
+- cleans obvious text artifacts:
+  - BOM
+  - null bytes
+  - embedded line breaks
+  - smart quotes
+  - repeated whitespace
+- normalises parseable date strings to `YYYY-MM-DD`
+- appends a `Change Log` sheet
+- writes atomically via temp file + replace
 
-### 11. Single-value columns
-A column where every non-empty row has the same value is likely a fill-down accident. Reports the column name and the repeated value per sheet.
+Important limits:
+- formulas are preserved, not recalculated
+- missing formula cache values are not reconstructed
+- `.xlsm` macros are only preserved if the output stays `.xlsm`
+- this is not a spreadsheet reconstruction engine
 
-### 12. Structural subtotal/total rows
-Flags likely subtotal rows (`TOTAL`, `SUBTOTAL`, `GRAND TOTAL`) embedded inside detail tables.
+---
 
-### 13. High-null columns
-Flags columns that are mostly empty (>= 80% blanks) but not entirely empty.
+## When to use `excel-doctor` vs `csv-doctor`
+
+Use `excel-doctor` when:
+- workbook sheets matter
+- hidden sheets matter
+- merged ranges / header bands / workbook layout matter
+- the user wants to preserve workbook structure
+
+Use `csv-doctor` tabular rescue when:
+- the user wants `Clean Data / Quarantine / Change Log`
+- the workbook is really just a messy table
+- flattening the workbook into rows/columns is acceptable
+- the input is `.xls` or `.ods`
 
 ---
 
 ## How to invoke
 
 Diagnose:
-```
-python skills/excel-doctor/scripts/diagnose.py <path-to-xlsx>
+```bash
+python skills/excel-doctor/scripts/diagnose.py <path-to-xlsx-or-xlsm>
 ```
 
 Heal:
+```bash
+python skills/excel-doctor/scripts/heal.py <path-to-xlsx-or-xlsm> [output.xlsx|output.xlsm]
 ```
-python skills/excel-doctor/scripts/heal.py <path-to-xlsx> [output.xlsx]
-```
 
-For `diagnose.py`, Claude should read the JSON output and turn it into a plain-English health report with:
-- A one-line summary verdict (HEALTHY / NEEDS ATTENTION / CRITICAL)
-- A numbered list of every issue found, with sheet names, cell coordinates, and examples
-- Suggested fixes for each issue
-
-For `heal.py`, Claude should:
-- Report output filename and total changes logged
-- Call out major automatic fixes applied (merged ranges, headers, dates, empty rows)
-- List assumptions and anything that still needs manual review
-
----
-
-## Input
-
-A path to any `.xlsx` or `.xlsm` file.
-
-`diagnose.py` loads the workbook twice:
-- `data_only=True` for cached values and error inspection
-- `data_only=False` for formula-string inspection (to detect cache misses)
-
----
-
-## Output format
-
-The script outputs a single JSON object to stdout. Claude parses this and formats the final report. Exit code `0` means the script ran successfully (even if issues were found). Exit code `1` means the script itself failed (file not found, unreadable, wrong format, etc.).
-
-```json
-{
-  "file": "messy_sample.xlsx",
-  "sheets": {
-    "all": ["Orders", "Summary", "Archive"],
-    "count": 3,
-    "empty": ["Summary"],
-    "hidden": [{"name": "Archive", "state": "hidden"}]
-  },
-  "merged_cells": {
-    "Orders": ["G2:G3"]
-  },
-  "formula_errors": {
-    "Orders": [
-      {"cell": "E6", "value": "#DIV/0!"},
-      {"cell": "E9", "value": "#REF!"},
-      {"cell": "E11", "value": "#VALUE!"}
-    ]
-  },
-  "formula_cache_misses": {
-    "Orders": [
-      {
-        "cell": "H12",
-        "formula": "=SUM(H2:H11)",
-        "reason": "No cached value. Open/recalculate in Excel and save."
-      }
-    ]
-  },
-  "mixed_types": {
-    "Orders": {
-      "amount": {
-        "types": ["number", "text"],
-        "examples": {"number": "250.0", "text": "N/A"}
-      }
-    }
-  },
-  "empty_rows": {
-    "Orders": {"count": 2, "rows": [5, 10]}
-  },
-  "empty_columns": {},
-  "duplicate_headers": {
-    "Orders": ["customer_id"]
-  },
-  "whitespace_headers": {},
-  "structural_rows": {},
-  "date_formats": {
-    "Orders": {
-      "order_date": {
-        "formats_found": ["YYYY-MM-DD", "DD/MM/YYYY or MM/DD/YYYY"],
-        "examples": {
-          "YYYY-MM-DD": "2023-01-15",
-          "DD/MM/YYYY or MM/DD/YYYY": "15/02/2023"
-        }
-      }
-    }
-  },
-  "single_value_columns": {
-    "Orders": {"status": "active"}
-  },
-  "high_null_columns": {},
-  "summary": {
-    "verdict": "CRITICAL",
-    "issue_count": 15,
-    "issue_categories_triggered": 9
-  },
-  "issue_counts": {
-    "formula_errors": 3,
-    "duplicate_headers": 1
-  }
-}
+Structured healing summary:
+```bash
+python skills/excel-doctor/scripts/heal.py workbook.xlsx healed.xlsx --json-summary /tmp/excel_heal_summary.json
 ```
 
 ---
 
-## heal.py auto-fixes
+## Expected output shape
 
-`heal.py` applies deterministic fixes:
-- Unmerge merged ranges and fill child cells from the anchor value
-- Standardise headers (trim/collapse spaces), create fallback names for blanks, dedupe duplicates with suffixes (`_2`, `_3`, ...)
-- Clean text values (BOM/NULL/line-break/smart-quote cleanup)
-- Normalise common date strings to `YYYY-MM-DD`
-- Remove fully empty rows
-- Append a `Change Log` sheet with one row per edit
+`diagnose.py` returns JSON with:
+- contract metadata
+- workbook file info
+- sheet inventory
+- workbook-native issue sections
+- `sheet_summaries`
+- `workbook_summary`
+- `summary`
+- `issue_counts`
+- `run_summary`
+
+`heal.py` returns:
+- healed workbook written to disk
+- appended `Change Log` sheet
+- optional JSON summary with:
+  - contract metadata
+  - mode = `workbook-native`
+  - stats
+  - changes logged
+  - assumptions
+  - run summary
 
 ---
 
-## Sample file
+## Sample commands
 
-`sample-data/messy_sample.xlsx` is a deliberately broken workbook for testing. It contains:
+```bash
+python skills/excel-doctor/scripts/diagnose.py sample-data/messy_sample.xlsx
+python skills/excel-doctor/scripts/heal.py sample-data/messy_sample.xlsx
+python skills/excel-doctor/scripts/diagnose.py /tmp/messy_sample_healed.xlsx
+```
 
-| Sheet | Problems baked in |
-|---|---|
-| Orders | Duplicate header (`customer_id` ×2), merged cells (`G2:G3`), 3 formula errors (`#DIV/0!`, `#REF!`, `#VALUE!`), mixed types in `amount` (float + `"N/A"`), 2 empty rows, 7 date formats, `status` column always `"active"` |
-| Summary | Completely empty sheet |
-| Archive | Hidden sheet |
+---
+
+## Sample workbook expectations
+
+`sample-data/messy_sample.xlsx` is useful for validating:
+- hidden sheet detection
+- merged range detection
+- formula error detection
+- duplicate header detection
+- mixed-type column detection
+- empty row removal
+- workbook-native healing with `Change Log`
 
 ---
 
 ## Dependencies
 
-- `openpyxl` — reads `.xlsx` files and exposes sheet structure, merged cells, cell types, and formula error values
+- `openpyxl`
 
-Install: `pip install openpyxl`
+Install:
+```bash
+pip install openpyxl
+```

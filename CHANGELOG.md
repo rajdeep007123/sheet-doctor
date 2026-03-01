@@ -7,6 +7,30 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Changed
+- **`excel-doctor` / `diagnose.py`** — workbook-native diagnosis is now materially stronger and more explicit:
+  - Reports hidden and very-hidden sheets separately
+  - Detects header bands, metadata/preamble rows, notes-like rows, structural subtotal rows, and empty edge columns
+  - Reports formula cells alongside formula errors and cache misses
+  - Emits sheet-level risk summaries plus a workbook-level summary
+  - Rejects `.xls` explicitly and rejects encrypted OOXML workbooks with a stable user-facing error
+- **`excel-doctor` / `heal.py`** — workbook-native healing is now safer and clearer:
+  - Writes atomically through a temp workbook path before replacing the target output
+  - Preserves `.xlsm` output suffixes by default so macros are not silently stripped by the default path
+  - Flattens safe stacked headers, removes metadata rows, trims empty edge columns, unmerges ranges, preserves formulas, cleans text/date cells, and appends a `Change Log` sheet
+  - Structured summaries now report `workbook-native` mode explicitly and include preserved-formula counts
+- **Excel fixtures / tests** — added committed workbook-native regression coverage:
+  - `tests/fixtures/excel/hidden_layers.xlsx`
+  - `tests/fixtures/excel/stacked_headers.xlsx`
+  - `tests/fixtures/excel/preamble_report.xlsx`
+  - `tests/fixtures/excel/formula_cases.xlsx`
+  - `tests/fixtures/excel/merged_edges.xlsx`
+  - `tests/fixtures/excel/text_date_cleanup.xlsx`
+  - `tests/fixtures/excel/duplicate_headers.xlsx`
+  - `tests/test_excel_doctor.py` now covers diagnosis findings, workbook-native healing fixes, encrypted/corrupt failures, atomic output protection, `.xlsm` support, and UI mode separation
+- **`web/app.py`** — workbook mode separation is now explicit in the UI:
+  - Shows whether a workbook will run in `workbook-native`, `tabular-rescue`, or `tabular-rescue-fallback` mode
+  - Explains why that mode was chosen and the tradeoff before the run starts
+  - Workbook-native runs now keep `.xlsm` output names and capture Excel-heal JSON summaries
 - **`csv-doctor` / `heal.py`** — split into smaller modules under `skills/csv-doctor/scripts/heal_modules/`:
   - Shared constants/dataclasses now live in `shared.py`
   - Row/header preprocessing now lives in `preprocessing.py`
