@@ -7,6 +7,15 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Changed
+- **CLI / packaging** — `sheet-doctor` is now a real installable command:
+  - Added `sheet-doctor diagnose <file>`
+  - Added `sheet-doctor heal <file> [output]`
+  - Added `sheet-doctor report <file>`
+  - Added format-aware routing across `csv-doctor` and `excel-doctor`
+  - Added `--mode auto|tabular|workbook`, `--sheet`, `--all-sheets`, `--output`, and `--json-summary` handling at the top-level CLI where relevant
+  - `pip install .` and `pipx install .` now expose a usable `sheet-doctor` command
+  - Bundled runtime script copies now ship inside the package so installed CLI commands still work outside the repo checkout
+  - Added a minimal `setup.py` compatibility shim so older local pip/setuptools environments can still install the CLI entrypoint
 - **`excel-doctor` / `diagnose.py`** — workbook-native diagnosis is now materially stronger and more explicit:
   - Reports hidden and very-hidden sheets separately
   - Detects header bands, metadata/preamble rows, notes-like rows, structural subtotal rows, and empty edge columns

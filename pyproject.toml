@@ -20,6 +20,9 @@ dependencies = [
   "requests",
 ]
 
+[project.scripts]
+sheet-doctor = "sheet_doctor.cli:main"
+
 [project.optional-dependencies]
 excel-legacy = ["xlrd"]
 ods = ["odfpy"]
@@ -27,6 +30,13 @@ all = ["xlrd", "odfpy"]
 
 [tool.setuptools]
 packages = ["sheet_doctor"]
+
+[tool.setuptools.package-data]
+sheet_doctor = [
+  "bundled/skills/csv-doctor/scripts/*.py",
+  "bundled/skills/csv-doctor/scripts/heal_modules/*.py",
+  "bundled/skills/excel-doctor/scripts/*.py",
+]
 
 [tool.coverage.run]
 branch = true

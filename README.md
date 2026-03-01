@@ -4,6 +4,14 @@
 
 **sheet-doctor** is a free, open-source Claude Code Skills Pack for diagnosing and fixing messy spreadsheet files. Drop a broken file in, get a human-readable health report out. No SaaS subscription. Local-first by default. Public URL mode downloads remote files only when you explicitly use it.
 
+CLI now available:
+
+```bash
+sheet-doctor diagnose file.xlsx
+sheet-doctor heal file.csv
+sheet-doctor report file.json
+```
+
 ---
 
 ## What it does
@@ -208,7 +216,19 @@ pip install xlrd    # .xls legacy Excel files
 pip install odfpy  # .ods OpenDocument files
 ```
 
-`pip install .` installs package metadata and shared Python modules, but it does **not** currently create a standalone `sheet-doctor` CLI. Day-to-day use is still repo-first: run the scripts directly or register the skills folder with Claude Code.
+Install options:
+
+```bash
+pipx install .
+```
+
+or
+
+```bash
+pip install .
+```
+
+Both now create a working `sheet-doctor` CLI. Repo-first script usage still works for development.
 
 **3. Run the loader tests**
 
@@ -249,6 +269,38 @@ ln -s "$(pwd)/skills/excel-doctor" ~/.claude/skills/excel-doctor
 ```
 
 **5. Run it**
+
+CLI:
+
+```bash
+sheet-doctor diagnose sample-data/extreme_mess.csv
+sheet-doctor heal sample-data/extreme_mess.csv
+sheet-doctor report sample-data/extreme_mess.csv
+sheet-doctor diagnose sample-data/messy_sample.xlsx
+sheet-doctor heal sample-data/messy_sample.xlsx
+```
+
+Routing rules:
+- `.csv .tsv .txt .json .jsonl` → `csv-doctor`
+- `.xlsx .xlsm` → `excel-doctor` by default for `diagnose` / `heal`
+- `.xlsx .xlsm` with `--sheet` or `--all-sheets` → `csv-doctor` tabular rescue/report path
+- `.xls .ods` → explicit tabular fallback path
+
+Examples:
+
+```bash
+# Workbook-native diagnosis
+sheet-doctor diagnose sample-data/messy_sample.xlsx
+
+# Tabular rescue view of one workbook sheet
+sheet-doctor diagnose sample-data/messy_sample.xlsx --mode tabular --sheet Orders
+
+# Workbook-native healing with machine-readable summary
+sheet-doctor heal sample-data/messy_sample.xlsx --json-summary /tmp/messy_sample_heal.json
+
+# Tabular report as JSON
+sheet-doctor report sample-data/extreme_mess.csv --format json --output /tmp/extreme_mess_report.json
+```
 
 In any Claude Code session:
 
