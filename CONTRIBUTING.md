@@ -130,3 +130,27 @@ Healer scripts are optional but follow this pattern:
 ## Questions
 
 Open an issue or start a discussion. There are no dumb questions here — I'm learning too.
+
+---
+
+## Release checklist
+
+Before cutting a release:
+
+1. Run the full test suite
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+2. Update `CHANGELOG.md`
+3. Bump the version in `pyproject.toml` and `sheet_doctor/__init__.py`
+4. Commit the release changes
+5. Tag the release
+
+```bash
+git tag vX.Y.Z
+git push origin main --tags
+```
+
+6. Publish/package only after the tagged tree matches the released code

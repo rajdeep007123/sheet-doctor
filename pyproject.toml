@@ -5,12 +5,37 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sheet-doctor"
 version = "0.5.0"
-description = "Free local spreadsheet diagnosis and cleanup tools for messy CSV and Excel files"
+description = "Local-first spreadsheet triage and cleanup for messy CSV and Excel files"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [
   { name = "razzo007" }
+]
+keywords = [
+  "csv",
+  "excel",
+  "spreadsheet",
+  "data-cleaning",
+  "cli",
+  "openpyxl",
+  "pandas",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Financial :: Spreadsheet",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Utilities",
 ]
 dependencies = [
   "pandas",
@@ -19,6 +44,13 @@ dependencies = [
   "streamlit",
   "requests",
 ]
+
+[project.urls]
+Homepage = "https://github.com/razzo007/sheet-doctor"
+Repository = "https://github.com/razzo007/sheet-doctor"
+Issues = "https://github.com/razzo007/sheet-doctor/issues"
+Changelog = "https://github.com/razzo007/sheet-doctor/blob/main/CHANGELOG.md"
+Funding = "https://buymeacoffee.com/quietlytools"
 
 [project.scripts]
 sheet-doctor = "sheet_doctor.cli:main"

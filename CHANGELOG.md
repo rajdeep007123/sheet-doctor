@@ -7,6 +7,11 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Changed
+- **Release-facing polish** — the repo now presents itself more like a maintained package:
+  - Added README badges for CI, Python versions, license, and local-first positioning
+  - Added a small support section linking to Buy Me a Coffee
+  - Tightened `pyproject.toml` metadata with clearer description, keywords, classifiers, and project URLs
+  - Added a lightweight release checklist to `CONTRIBUTING.md`
 - **README positioning** — the project now leads as a local-first spreadsheet cleanup tool instead of a Claude/skills-first demo:
   - Rewrote the opening section around what the tool fixes, who it is for, quick CLI usage, and why it exists
   - Added a short comparison block explaining where `sheet-doctor` differs from OpenRefine and manual spreadsheet cleanup

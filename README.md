@@ -1,5 +1,10 @@
 # sheet-doctor
 
+[![CI](https://github.com/razzo007/sheet-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/razzo007/sheet-doctor/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.9%20%7C%203.11%20%7C%203.12-blue)
+![License](https://img.shields.io/github/license/razzo007/sheet-doctor)
+![Local-first](https://img.shields.io/badge/local--first-yes-2d7d46)
+
 **sheet-doctor** is a local-first spreadsheet triage and cleanup tool for messy CSVs, broken exports, and workbook-shaped reporting files.
 
 It is strongest on:
@@ -32,6 +37,11 @@ sheet-doctor diagnose sample-data/extreme_mess.csv
 sheet-doctor heal sample-data/extreme_mess.csv
 sheet-doctor diagnose sample-data/messy_sample.xlsx
 ```
+
+## Support
+
+If the tool saves you time or helps you clean up ugly exports, support the project here:
+- [Buy Me a Coffee](https://buymeacoffee.com/quietlytools)
 
 What it fixes:
 - encoding mess
@@ -434,6 +444,12 @@ pip install .
 ```
 
 Both now create a working `sheet-doctor` CLI. Repo-first script usage still works for development.
+
+Package metadata:
+- project name: `sheet-doctor`
+- current version: `0.5.0`
+- Python requirement: `>=3.9`
+- installable CLI: `sheet-doctor`
 
 **3. Run the loader tests**
 
