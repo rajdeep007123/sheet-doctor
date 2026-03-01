@@ -124,7 +124,7 @@ class ReporterTests(unittest.TestCase):
         text = re.sub(r"Fixed changes: \d+", "Fixed changes: <PLATFORM_SPECIFIC>", text)
         # chardet returns different encoding names across Python versions
         return re.sub(
-            r"uses [A-Z][A-Z0-9-]+ instead of UTF-8",
+            r"uses [A-Za-z][A-Za-z0-9-]+ instead of UTF-8",
             "uses <DETECTED_ENCODING> instead of UTF-8",
             text,
         )
@@ -151,7 +151,7 @@ class ReporterTests(unittest.TestCase):
         # (e.g. "MacRoman" on 3.9 vs "WINDOWS-1250" on 3.14). The encoding name
         # appears verbatim in issue plain_english strings, so normalise it here.
         return re.sub(
-            r"uses [A-Z][A-Z0-9-]+ instead of UTF-8",
+            r"uses [A-Za-z][A-Za-z0-9-]+ instead of UTF-8",
             "uses <DETECTED_ENCODING> instead of UTF-8",
             s,
         )
