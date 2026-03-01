@@ -463,35 +463,10 @@
           "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": 45234.5,
           "min_value": -500.0,
-          "most_common_values": [
-            {
-              "count": 5,
-              "value": "450.00"
-            },
-            {
-              "count": 3,
-              "value": "$1,200.00"
-            },
-            {
-              "count": 3,
-              "value": "567.00"
-            },
-            {
-              "count": 2,
-              "value": "89.50"
-            },
-            {
-              "count": 2,
-              "value": "234.00"
-            }
-          ],
+          "most_common_values": "<PLATFORM_SPECIFIC>",
           "null_count": 6,
           "null_percentage": 13.04,
-          "sample_values": [
-            "89.00",
-            "567.00",
-            "$1,200.00"
-          ],
+          "sample_values": "<PLATFORM_SPECIFIC>",
           "suspected_issues": [
             "Possible duplicates with slight differences",
             "Outliers detected (values outside 3 standard deviations)"
@@ -506,35 +481,10 @@
           "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
-          "most_common_values": [
-            {
-              "count": 13,
-              "value": "Travel"
-            },
-            {
-              "count": 6,
-              "value": "Training"
-            },
-            {
-              "count": 5,
-              "value": "Software"
-            },
-            {
-              "count": 5,
-              "value": "Entertainment"
-            },
-            {
-              "count": 4,
-              "value": "Meals"
-            }
-          ],
+          "most_common_values": "<PLATFORM_SPECIFIC>",
           "null_count": 6,
           "null_percentage": 13.04,
-          "sample_values": [
-            "Software",
-            "Travel",
-            "Equipment"
-          ],
+          "sample_values": "<PLATFORM_SPECIFIC>",
           "suspected_issues": [],
           "type_scores": "<PLATFORM_SPECIFIC>",
           "unique_count": 8,
@@ -546,35 +496,10 @@
           "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
-          "most_common_values": [
-            {
-              "count": 30,
-              "value": "USD"
-            },
-            {
-              "count": 3,
-              "value": "usd"
-            },
-            {
-              "count": 3,
-              "value": "EUR"
-            },
-            {
-              "count": 1,
-              "value": "US Dollar"
-            },
-            {
-              "count": 1,
-              "value": "INR ₹"
-            }
-          ],
+          "most_common_values": "<PLATFORM_SPECIFIC>",
           "null_count": 5,
           "null_percentage": 10.87,
-          "sample_values": [
-            "usd",
-            "USD",
-            "$"
-          ],
+          "sample_values": "<PLATFORM_SPECIFIC>",
           "suspected_issues": [
             "Inconsistent capitalisation",
             "Possible duplicates with slight differences"
@@ -589,35 +514,10 @@
           "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": "2023-12-28",
           "min_value": "2023-01-05",
-          "most_common_values": [
-            {
-              "count": 3,
-              "value": "15/03/2023"
-            },
-            {
-              "count": 3,
-              "value": "2023-01-18T00:00:00Z"
-            },
-            {
-              "count": 1,
-              "value": "20/04/2023"
-            },
-            {
-              "count": 1,
-              "value": "22/11/2023"
-            },
-            {
-              "count": 1,
-              "value": "March 15 2023"
-            }
-          ],
+          "most_common_values": "<PLATFORM_SPECIFIC>",
           "null_count": 4,
           "null_percentage": 8.7,
-          "sample_values": [
-            "2023-03-20",
-            "2023-01-18T00:00:00Z",
-            "44910"
-          ],
+          "sample_values": "<PLATFORM_SPECIFIC>",
           "suspected_issues": [
             "Mixed date formats detected",
             "Inconsistent capitalisation"
@@ -632,35 +532,10 @@
           "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
-          "most_common_values": [
-            {
-              "count": 8,
-              "value": "Marketing"
-            },
-            {
-              "count": 7,
-              "value": "Engineering"
-            },
-            {
-              "count": 6,
-              "value": "Finance"
-            },
-            {
-              "count": 6,
-              "value": "Sales"
-            },
-            {
-              "count": 4,
-              "value": "HR"
-            }
-          ],
+          "most_common_values": "<PLATFORM_SPECIFIC>",
           "null_count": 4,
           "null_percentage": 8.7,
-          "sample_values": [
-            "engineering dept",
-            "Engineering",
-            "Marketing"
-          ],
+          "sample_values": "<PLATFORM_SPECIFIC>",
           "suspected_issues": [
             "Inconsistent capitalisation",
             "Possible duplicates with slight differences"
@@ -675,35 +550,10 @@
           "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
-          "most_common_values": [
-            {
-              "count": 3,
-              "value": "Sarah Mitchell"
-            },
-            {
-              "count": 3,
-              "value": "James Rodriguez"
-            },
-            {
-              "count": 2,
-              "value": "Jessica Brown"
-            },
-            {
-              "count": 1,
-              "value": "EXPENSE REPORT FY2023 -- Export: 2023-12-31 | HR System Pro v4.2"
-            },
-            {
-              "count": 1,
-              "value": "Sophie Bernard"
-            }
-          ],
+          "most_common_values": "<PLATFORM_SPECIFIC>",
           "null_count": 2,
           "null_percentage": 4.35,
-          "sample_values": [
-            "Lisa Thompson",
-            "Sarah Mitchell",
-            "Rachel Green"
-          ],
+          "sample_values": "<PLATFORM_SPECIFIC>",
           "suspected_issues": [
             "Inconsistent capitalisation",
             "Possible PII detected (emails/phones/names)"
@@ -718,35 +568,10 @@
           "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
-          "most_common_values": [
-            {
-              "count": 3,
-              "value": "Flight to NYC for client meeting"
-            },
-            {
-              "count": 3,
-              "value": "Annual license renewal"
-            },
-            {
-              "count": 2,
-              "value": "Train to Boston quarterly review"
-            },
-            {
-              "count": 2,
-              "value": "Keyboard and mouse"
-            },
-            {
-              "count": 1,
-              "value": "Lunch at café Rouge - team outing"
-            }
-          ],
+          "most_common_values": "<PLATFORM_SPECIFIC>",
           "null_count": 7,
           "null_percentage": 15.22,
-          "sample_values": [
-            "Mumbai to Delhi flight",
-            "Annual license renewal",
-            "Overpayment reversal"
-          ],
+          "sample_values": "<PLATFORM_SPECIFIC>",
           "suspected_issues": [],
           "type_scores": "<PLATFORM_SPECIFIC>",
           "unique_count": 33,
@@ -758,35 +583,10 @@
           "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
-          "most_common_values": [
-            {
-              "count": 12,
-              "value": "Approved"
-            },
-            {
-              "count": 12,
-              "value": "approved"
-            },
-            {
-              "count": 3,
-              "value": "APPROVED"
-            },
-            {
-              "count": 3,
-              "value": "pending"
-            },
-            {
-              "count": 2,
-              "value": "Pending"
-            }
-          ],
+          "most_common_values": "<PLATFORM_SPECIFIC>",
           "null_count": 7,
           "null_percentage": 15.22,
-          "sample_values": [
-            "approved",
-            "Approved",
-            "rejected"
-          ],
+          "sample_values": "<PLATFORM_SPECIFIC>",
           "suspected_issues": [
             "Inconsistent capitalisation",
             "Possible duplicates with slight differences"
@@ -866,35 +666,10 @@
             "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": 45234.5,
             "min_value": -500.0,
-            "most_common_values": [
-              {
-                "count": 5,
-                "value": "450.00"
-              },
-              {
-                "count": 3,
-                "value": "$1,200.00"
-              },
-              {
-                "count": 3,
-                "value": "567.00"
-              },
-              {
-                "count": 2,
-                "value": "89.50"
-              },
-              {
-                "count": 2,
-                "value": "234.00"
-              }
-            ],
+            "most_common_values": "<PLATFORM_SPECIFIC>",
             "null_count": 6,
             "null_percentage": 13.04,
-            "sample_values": [
-              "89.00",
-              "567.00",
-              "$1,200.00"
-            ],
+            "sample_values": "<PLATFORM_SPECIFIC>",
             "suspected_issues": [
               "Possible duplicates with slight differences",
               "Outliers detected (values outside 3 standard deviations)"
@@ -909,35 +684,10 @@
             "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
-            "most_common_values": [
-              {
-                "count": 13,
-                "value": "Travel"
-              },
-              {
-                "count": 6,
-                "value": "Training"
-              },
-              {
-                "count": 5,
-                "value": "Software"
-              },
-              {
-                "count": 5,
-                "value": "Entertainment"
-              },
-              {
-                "count": 4,
-                "value": "Meals"
-              }
-            ],
+            "most_common_values": "<PLATFORM_SPECIFIC>",
             "null_count": 6,
             "null_percentage": 13.04,
-            "sample_values": [
-              "Software",
-              "Travel",
-              "Equipment"
-            ],
+            "sample_values": "<PLATFORM_SPECIFIC>",
             "suspected_issues": [],
             "type_scores": "<PLATFORM_SPECIFIC>",
             "unique_count": 8,
@@ -949,35 +699,10 @@
             "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
-            "most_common_values": [
-              {
-                "count": 30,
-                "value": "USD"
-              },
-              {
-                "count": 3,
-                "value": "usd"
-              },
-              {
-                "count": 3,
-                "value": "EUR"
-              },
-              {
-                "count": 1,
-                "value": "US Dollar"
-              },
-              {
-                "count": 1,
-                "value": "INR ₹"
-              }
-            ],
+            "most_common_values": "<PLATFORM_SPECIFIC>",
             "null_count": 5,
             "null_percentage": 10.87,
-            "sample_values": [
-              "usd",
-              "USD",
-              "$"
-            ],
+            "sample_values": "<PLATFORM_SPECIFIC>",
             "suspected_issues": [
               "Inconsistent capitalisation",
               "Possible duplicates with slight differences"
@@ -992,35 +717,10 @@
             "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": "2023-12-28",
             "min_value": "2023-01-05",
-            "most_common_values": [
-              {
-                "count": 3,
-                "value": "15/03/2023"
-              },
-              {
-                "count": 3,
-                "value": "2023-01-18T00:00:00Z"
-              },
-              {
-                "count": 1,
-                "value": "20/04/2023"
-              },
-              {
-                "count": 1,
-                "value": "22/11/2023"
-              },
-              {
-                "count": 1,
-                "value": "March 15 2023"
-              }
-            ],
+            "most_common_values": "<PLATFORM_SPECIFIC>",
             "null_count": 4,
             "null_percentage": 8.7,
-            "sample_values": [
-              "2023-03-20",
-              "2023-01-18T00:00:00Z",
-              "44910"
-            ],
+            "sample_values": "<PLATFORM_SPECIFIC>",
             "suspected_issues": [
               "Mixed date formats detected",
               "Inconsistent capitalisation"
@@ -1035,35 +735,10 @@
             "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
-            "most_common_values": [
-              {
-                "count": 8,
-                "value": "Marketing"
-              },
-              {
-                "count": 7,
-                "value": "Engineering"
-              },
-              {
-                "count": 6,
-                "value": "Finance"
-              },
-              {
-                "count": 6,
-                "value": "Sales"
-              },
-              {
-                "count": 4,
-                "value": "HR"
-              }
-            ],
+            "most_common_values": "<PLATFORM_SPECIFIC>",
             "null_count": 4,
             "null_percentage": 8.7,
-            "sample_values": [
-              "engineering dept",
-              "Engineering",
-              "Marketing"
-            ],
+            "sample_values": "<PLATFORM_SPECIFIC>",
             "suspected_issues": [
               "Inconsistent capitalisation",
               "Possible duplicates with slight differences"
@@ -1078,35 +753,10 @@
             "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
-            "most_common_values": [
-              {
-                "count": 3,
-                "value": "Sarah Mitchell"
-              },
-              {
-                "count": 3,
-                "value": "James Rodriguez"
-              },
-              {
-                "count": 2,
-                "value": "Jessica Brown"
-              },
-              {
-                "count": 1,
-                "value": "EXPENSE REPORT FY2023 -- Export: 2023-12-31 | HR System Pro v4.2"
-              },
-              {
-                "count": 1,
-                "value": "Sophie Bernard"
-              }
-            ],
+            "most_common_values": "<PLATFORM_SPECIFIC>",
             "null_count": 2,
             "null_percentage": 4.35,
-            "sample_values": [
-              "Lisa Thompson",
-              "Sarah Mitchell",
-              "Rachel Green"
-            ],
+            "sample_values": "<PLATFORM_SPECIFIC>",
             "suspected_issues": [
               "Inconsistent capitalisation",
               "Possible PII detected (emails/phones/names)"
@@ -1121,35 +771,10 @@
             "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
-            "most_common_values": [
-              {
-                "count": 3,
-                "value": "Flight to NYC for client meeting"
-              },
-              {
-                "count": 3,
-                "value": "Annual license renewal"
-              },
-              {
-                "count": 2,
-                "value": "Train to Boston quarterly review"
-              },
-              {
-                "count": 2,
-                "value": "Keyboard and mouse"
-              },
-              {
-                "count": 1,
-                "value": "Lunch at café Rouge - team outing"
-              }
-            ],
+            "most_common_values": "<PLATFORM_SPECIFIC>",
             "null_count": 7,
             "null_percentage": 15.22,
-            "sample_values": [
-              "Mumbai to Delhi flight",
-              "Annual license renewal",
-              "Overpayment reversal"
-            ],
+            "sample_values": "<PLATFORM_SPECIFIC>",
             "suspected_issues": [],
             "type_scores": "<PLATFORM_SPECIFIC>",
             "unique_count": 33,
@@ -1161,35 +786,10 @@
             "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
-            "most_common_values": [
-              {
-                "count": 12,
-                "value": "Approved"
-              },
-              {
-                "count": 12,
-                "value": "approved"
-              },
-              {
-                "count": 3,
-                "value": "APPROVED"
-              },
-              {
-                "count": 3,
-                "value": "pending"
-              },
-              {
-                "count": 2,
-                "value": "Pending"
-              }
-            ],
+            "most_common_values": "<PLATFORM_SPECIFIC>",
             "null_count": 7,
             "null_percentage": 15.22,
-            "sample_values": [
-              "approved",
-              "Approved",
-              "rejected"
-            ],
+            "sample_values": "<PLATFORM_SPECIFIC>",
             "suspected_issues": [
               "Inconsistent capitalisation",
               "Possible duplicates with slight differences"

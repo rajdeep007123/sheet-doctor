@@ -142,6 +142,10 @@ class ReporterTests(unittest.TestCase):
         # strptime / chardet handle a couple of edge-case rows differently
         "action_counts",
         "changelog_entries",
+        # cell text depends on which encoding chardet chooses; Latin-1 bytes decode
+        # differently under MacRoman (Python 3.9) vs WINDOWS-1250 (Python 3.14)
+        "most_common_values",
+        "sample_values",
     }
 
     @staticmethod
