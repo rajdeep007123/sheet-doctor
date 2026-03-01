@@ -72,6 +72,168 @@ Core components:
 | `excel-doctor` | `heal.py` | Workbook-native Excel cleanup for `.xlsx/.xlsm`: unmerge ranges, flatten safe stacked headers, remove metadata rows and empty rows, trim empty edge columns, clean text/date values, preserve formulas, append Change Log |
 | `web` | `app.py` | Local Streamlit UI — upload files or paste public file URLs, describe what you want, preview the table, and download a human-readable workbook |
 
+## Before → After examples
+
+### 1. Messy CSV: encoding + structure + mixed dates
+
+File:
+- `sample-data/extreme_mess.csv`
+
+What was wrong:
+- non-UTF-8 encoding (`MacRoman`)
+- misaligned rows and a repeated header row
+- mixed date formats in the same date column
+- subtotal rows, notes rows, and near-duplicate category values
+
+Commands:
+
+```bash
+sheet-doctor report sample-data/extreme_mess.csv --json
+sheet-doctor heal sample-data/extreme_mess.csv
+```
+
+Outcome:
+
+| Metric | Result |
+|---|---|
+| Raw health score | `32/100` |
+| Recoverability score | `71/100` |
+| Post-heal score | `79/100` |
+| Clean rows | `42` |
+| Quarantine rows | `5` |
+| Healing mode | `schema-specific` |
+
+What changed:
+- normalized encoding damage and suspicious characters
+- repaired misaligned rows and removed repeated headers
+- standardized mixed date formats
+- pushed unsafe rows into `Quarantine` instead of silently guessing
+
+What still needs a human:
+- 5 quarantined rows
+- 11 cleaned rows still flagged `needs_review=TRUE`
+- outlier amounts and near-duplicate categorical values
+
+Rendered proof:
+
+```text
+Outputs:
+- Clean Data
+- Quarantine
+- Change Log
+
+Top recommended actions:
+1. Run sheet-doctor healing now: it can automatically address 8 issue type(s) across 13 flagged issue instance(s)
+2. Review 5 row(s) in the Quarantine tab that could not be repaired safely
+3. Manually inspect 11 cleaned row(s) still flagged needs_review=TRUE
+```
+
+### 2. Ugly Excel report: preamble rows + stacked headers + workbook triage
+
+File:
+- `tests/fixtures/excel/stacked_headers.xlsx`
+
+What was wrong:
+- 2 preamble/metadata rows before the real table
+- stacked header band across rows `3` and `4`
+- mixed date formatting in the report table
+
+Commands:
+
+```bash
+sheet-doctor diagnose tests/fixtures/excel/stacked_headers.xlsx --json
+sheet-doctor heal tests/fixtures/excel/stacked_headers.xlsx --output /tmp/stacked_headers_cleaned.xlsx --json-summary /tmp/stacked_headers_summary.json
+sheet-doctor diagnose /tmp/stacked_headers_cleaned.xlsx --json
+```
+
+Outcome before heal:
+- triage: `tabular_rescue_recommended`
+- reason: report-style workbook with preamble/header-band noise
+
+What workbook-native heal fixed:
+
+| Issue | Before | After |
+|---|---:|---:|
+| Header bands | `1` | `0` |
+| Metadata rows | `2` | `0` |
+| Date format columns | `1` | `0` |
+
+Outcome after heal:
+- triage: `workbook_native_safe_cleanup`
+- changes logged: `4`
+- sheets processed: `1`
+
+What still needs a human:
+- this case did not leave residual manual-review issues after workbook-native cleanup
+- the point of the example is the triage shift: workbook-native cleanup made the workbook structurally safe enough to stop recommending tabular rescue
+
+Rendered proof:
+
+```text
+Before triage: tabular_rescue_recommended
+After triage:  workbook_native_safe_cleanup
+
+Fixed by heal:
+- header_bands: 1 -> 0
+- metadata_rows: 2 -> 0
+- date_format_columns: 1 -> 0
+```
+
+### 3. Review-needed case: cleanup improved readability, but not everything was auto-fixed
+
+File:
+- `sample-data/messy_sample.csv`
+
+What was wrong:
+- non-UTF-8 encoding (`ISO-8859-1`)
+- repeated header row and misaligned rows
+- 7 mixed date formats in `order_date`
+- inconsistent casing in `customer_name`, `status`, and `notes`
+- review-needed date-like near-duplicate values
+
+Commands:
+
+```bash
+sheet-doctor report sample-data/messy_sample.csv --json
+sheet-doctor heal sample-data/messy_sample.csv --output /tmp/messy_sample_cleaned.xlsx --json-summary /tmp/messy_sample_summary.json
+```
+
+Outcome:
+
+| Metric | Result |
+|---|---|
+| Raw health score | `31/100` |
+| Recoverability score | `71/100` |
+| Post-heal score | `85/100` |
+| Clean rows | `10` |
+| Quarantine rows | `2` |
+| Needs review | `1` |
+| Healing mode | `semantic` |
+
+What was normalized:
+- customer/status/notes capitalization
+- date normalization across 7 mixed formats
+- structural cleanup for blank/misaligned rows
+
+What was not auto-fixed:
+- order-date near-duplicate signal stayed review-only
+- 2 completely empty rows were quarantined instead of guessed into the table
+
+Why review/quarantine existed:
+- `sheet-doctor` could clean structure and formatting safely
+- it did not pretend ambiguous rows were trustworthy data
+
+Rendered proof:
+
+```text
+Heal summary:
+- mode: semantic
+- changes logged: 28
+- modified rows: 10
+- quarantine reasons:
+  - Completely empty row: 2
+```
+
 ## Who This Is For
 
 sheet-doctor is for people dealing with messy tabular exports and broken spreadsheet structure.

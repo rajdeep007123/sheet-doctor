@@ -12,6 +12,11 @@ All notable changes to sheet-doctor are documented here.
   - Added a short comparison block explaining where `sheet-doctor` differs from OpenRefine and manual spreadsheet cleanup
   - Moved Claude Code integration lower in the README as an optional integration instead of the headline
   - Made the install section explicit that Claude Code is optional and the CLI is the primary interface
+- **README proof examples** — replaced more abstract claims with concrete before/after examples:
+  - Added a messy CSV example using `sample-data/extreme_mess.csv`
+  - Added an ugly workbook example using `tests/fixtures/excel/stacked_headers.xlsx`
+  - Added a review-needed semantic-healing example using `sample-data/messy_sample.csv`
+  - Included real commands, current scores, clean/quarantine counts, and compact rendered proof snippets instead of stale hard-coded claims
 - **CLI contract hardening** — `sheet-doctor` now behaves like a public tool contract instead of a thin wrapper:
   - Added real top-level commands for `validate`, `config init`, `explain`, and `version` alongside `diagnose`, `heal`, and `report`
   - Added stable exit codes:
