@@ -7,6 +7,11 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Changed
+- **README positioning** — the project now leads as a local-first spreadsheet cleanup tool instead of a Claude/skills-first demo:
+  - Rewrote the opening section around what the tool fixes, who it is for, quick CLI usage, and why it exists
+  - Added a short comparison block explaining where `sheet-doctor` differs from OpenRefine and manual spreadsheet cleanup
+  - Moved Claude Code integration lower in the README as an optional integration instead of the headline
+  - Made the install section explicit that Claude Code is optional and the CLI is the primary interface
 - **CLI contract hardening** — `sheet-doctor` now behaves like a public tool contract instead of a thin wrapper:
   - Added real top-level commands for `validate`, `config init`, `explain`, and `version` alongside `diagnose`, `heal`, and `report`
   - Added stable exit codes:

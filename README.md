@@ -1,8 +1,12 @@
 # sheet-doctor
 
-> Designer by heart. Back in code after 8 years. Built this because someone had to — and no one else was doing it for free.
+**sheet-doctor** is a local-first spreadsheet triage and cleanup tool for messy CSVs, broken exports, and workbook-shaped reporting files.
 
-**sheet-doctor** is a free, open-source Claude Code Skills Pack for diagnosing and fixing messy spreadsheet files. Drop a broken file in, get a human-readable health report out. No SaaS subscription. Local-first by default. Public URL mode downloads remote files only when you explicitly use it.
+It is strongest on:
+- messy CSVs and table-like spreadsheet data
+- explicit cleanup outputs: `Clean Data`, `Quarantine`, and `Change Log`
+- headless, scriptable runs for local workflows and CI
+- `.xlsx` / `.xlsm` workbook-native cleanup with explicit residual-risk warnings
 
 CLI now available:
 
@@ -15,15 +19,50 @@ sheet-doctor config init
 sheet-doctor explain date_mixed_formats
 ```
 
----
+Quick install:
+
+```bash
+pipx install .
+```
+
+Quick try:
+
+```bash
+sheet-doctor diagnose sample-data/extreme_mess.csv
+sheet-doctor heal sample-data/extreme_mess.csv
+sheet-doctor diagnose sample-data/messy_sample.xlsx
+```
+
+What it fixes:
+- encoding mess
+- shifted or misaligned rows
+- duplicate headers and empty rows
+- mixed date formats
+- table-like workbook exports with preamble rows and stacked headers
+- workbook structural issues like merged ranges and empty edge columns
+
+Why this exists:
+- spreadsheets are messy, but many cleanup tools are interactive first
+- `sheet-doctor` is for repeatable local cleanup with audit artifacts
+- it is useful when you want:
+  - scriptable CLI runs
+  - quarantine instead of silent deletion
+  - explicit change logs
+  - CI-friendly exit codes and JSON output
+
+Why not just use OpenRefine?
+- OpenRefine is interactive first; `sheet-doctor` is scriptable and headless first
+- OpenRefine is great for exploratory cleanup; `sheet-doctor` is built for repeatable runs and saved artifacts
+- `sheet-doctor` gives you quarantine and change logs as first-class outputs
+- `sheet-doctor` is local-first and CI-friendly, but it is not a replacement for every spreadsheet workflow
 
 ## What it does
 
-Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five different date formats in the same column, blank rows, duplicate headers, formula errors — sheet-doctor finds all of it and tells you exactly what's wrong and where.
+Real-world spreadsheets are usually export debris: wrong encodings, misaligned columns, mixed date formats, duplicate headers, subtotal rows, notes rows, formula residue, or workbooks with report-style preambles.
 
-**Current skills:**
+Core components:
 
-| Skill | Scripts | What it does |
+| Component | Scripts | What it does |
 |---|---|---|
 | `csv-doctor` | `loader.py` | Universal file loader — reads `.csv .tsv .txt .xlsx .xls .xlsm .ods .json .jsonl` into a pandas DataFrame with encoding detection, delimiter sniffing, and explicit multi-sheet handling |
 | `csv-doctor` | `diagnose.py` | Structural diagnostics plus column semantics: encoding, delimiter detection, column alignment, date formats, empty rows, duplicate headers, inferred column types, per-column quality stats, suspected issues |
@@ -32,8 +71,6 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 | `excel-doctor` | `diagnose.py` | Workbook-native Excel diagnostics for `.xlsx/.xlsm`: hidden/very-hidden sheets, merged cells, header bands, metadata rows, formula cells/errors/cache misses, mixed types, duplicate/whitespace headers, empty edge columns |
 | `excel-doctor` | `heal.py` | Workbook-native Excel cleanup for `.xlsx/.xlsm`: unmerge ranges, flatten safe stacked headers, remove metadata rows and empty rows, trim empty edge columns, clean text/date values, preserve formulas, append Change Log |
 | `web` | `app.py` | Local Streamlit UI — upload files or paste public file URLs, describe what you want, preview the table, and download a human-readable workbook |
-
-More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 
 ## Who This Is For
 
@@ -189,7 +226,7 @@ For **optional dependencies and corrupt workbook files**, the loader now fails m
 
 ## Install
 
-You need [Claude Code](https://claude.ai/code) and Python installed.
+You need Python installed.
 
 Supported Python versions:
 - CI-tested: `3.9`, `3.11`, `3.12`
@@ -255,7 +292,11 @@ Remaining optional/manual gap:
 
 CI runs the same checks from [`.github/workflows/ci.yml`](/Users/razzo/Documents/For%20Codex/sheet-doctor/.github/workflows/ci.yml), plus compile checks, file-level coverage reporting, workbook/JSON diagnose-report smoke checks, and the sample end-to-end CSV pipeline.
 
-**4. Register the skills with Claude Code**
+**4. Optional: install the Claude Code skills**
+
+You do not need Claude Code to use the CLI.
+
+If you want to use the repo inside Claude Code as a local skill set:
 
 Copy the skill folders into your Claude Code skills directory:
 
@@ -563,9 +604,11 @@ Workbook triage, plainly:
 
 ---
 
-## How it works
+## Claude Code integration
 
-Each skill is a `SKILL.md` that tells Claude what the skill does, plus a `scripts/` folder with the Python that does the work. Claude reads the skill, runs the script, interprets the output, and gives you a plain-English report.
+`sheet-doctor` is a Python tool first. Claude Code integration is optional.
+
+If you use Claude Code, each skill is a `SKILL.md` plus a `scripts/` folder. Claude reads the skill, runs the script, and uses the output as part of the workflow.
 
 ```
 skills/
