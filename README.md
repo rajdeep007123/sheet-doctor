@@ -191,7 +191,7 @@ The test suite now uses committed in-repo fixtures under `tests/fixtures/` for:
 Remaining optional/manual gap:
 - happy-path legacy `.xls` loading is still not covered by a committed fixture because the repo does not ship a legacy `.xls` writer toolchain; CI still covers `.xls` missing-dependency and corrupt-file error handling
 
-CI runs the same checks from [`.github/workflows/ci.yml`](/Users/razzo/Documents/For%20Codex/sheet-doctor/.github/workflows/ci.yml), plus compile checks, workbook/JSON diagnose-report smoke checks, and the sample end-to-end CSV pipeline.
+CI runs the same checks from [`.github/workflows/ci.yml`](/Users/razzo/Documents/For%20Codex/sheet-doctor/.github/workflows/ci.yml), plus compile checks, file-level coverage reporting, workbook/JSON diagnose-report smoke checks, and the sample end-to-end CSV pipeline.
 
 **4. Register the skills with Claude Code**
 
@@ -270,11 +270,28 @@ Remote file-type detection:
 - Health scores are heuristic summaries, not guarantees of business correctness.
 - `excel-doctor` is the better fit when preserving workbook structure matters more than flattening the data into a readable table.
 
+## What this tool does not do
+
+- It does not merge multiple files into one reconciled dataset.
+- It does not do fuzzy entity resolution for vendors, customers, or employees.
+- It does not preserve workbook-native logic when you choose tabular rescue; that path flattens the sheet into rows and columns.
+- It does not stream huge files; the current pipeline still loads data in memory.
+- It does not promise business-truth validation. It cleans structure and common data mess, not accounting correctness or domain correctness.
+
+## Out of scope
+
+- `.parquet`
+- password-protected / encrypted Excel workbooks
+- survey multi-select normalization
+- Access database import
+- multi-file merge workflows
+- fuzzy entity resolution beyond the current exact / near-duplicate heuristics
+
 ## Security / privacy
 
 - Local files stay local unless you use public URL mode in the UI.
 - Public URL mode makes outbound network requests to fetch remote files.
-- The UI currently imports Google Fonts, which is also a network request.
+- Public URL mode now rejects remote files above `100 MB` before or during download; it is still not a hardened anti-abuse boundary.
 - Uploaded/remote files are processed through temporary files during local UI use; they are not intended to be stored permanently, but this is not a hardened secure-processing boundary.
 - No telemetry or analytics calls are built into the Python scripts themselves.
 

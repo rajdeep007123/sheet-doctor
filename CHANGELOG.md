@@ -7,6 +7,34 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Changed
+- **`csv-doctor` / `heal.py`** — split into smaller modules under `skills/csv-doctor/scripts/heal_modules/`:
+  - Shared constants/dataclasses now live in `shared.py`
+  - Row/header preprocessing now lives in `preprocessing.py`
+  - Value cleanup/normalisation now lives in `normalization.py`
+  - Semantic planning and processing loops now live in `semantic.py`
+  - Workbook-writing helpers now live in `workbook.py`
+  - Structured summary generation now lives in `summary.py`
+  - `heal.py` remains the stable CLI entrypoint and public surface
+- **Coverage / CI** — real coverage reporting is now configured:
+  - Added `coverage` to runtime/dev dependencies
+  - Added coverage configuration to `pyproject.toml`
+  - GitHub Actions now runs `coverage run` plus `coverage report -m`
+- **Tests** — added edge-shape regression coverage in `tests/test_data_shape_edges.py`:
+  - one-column files
+  - one-row files
+  - duplicate headers
+  - 500+ columns
+  - very long cell values
+  - emoji / RTL / CJK survival
+  - numbers stored as text
+  - Excel serial dates
+  - negative accounting amounts
+  - all-null / all-identical columns
+- **`web/app.py`** — privacy/network behavior tightened:
+  - Removed Google Fonts dependency so the UI no longer makes font-network requests by default
+  - Public URL mode now warns explicitly that it makes outbound network requests
+  - Remote URL downloads now enforce the size limit before or during streaming instead of after reading the full response into memory
+  - Local workbook inspection now uses stricter temporary-directory cleanup instead of `NamedTemporaryFile(delete=False)` paths
 - **`csv-doctor` / `heal.py`** — workbook writes are now atomic:
   - Writes to a temp workbook path first
   - Replaces the final output only after a successful save
@@ -34,6 +62,7 @@ All notable changes to sheet-doctor are documented here.
   - documented hard in-memory limits (`250 MB`, `1,000,000 rows`)
   - documented workbook rescue as heuristic/best-effort
   - documented unsupported cases such as password-protected Excel and parquet
+  - added `What this tool does not do` and `Out of scope` sections
 
 ---
 

@@ -36,6 +36,11 @@ jobs:
         run: |
           python -m unittest discover -s tests -v
 
+      - name: Coverage report
+        run: |
+          coverage run -m unittest discover -s tests -v
+          coverage report -m
+
       - name: Smoke run sample pipeline
         run: |
           python sample-data/generate_extreme_mess.py

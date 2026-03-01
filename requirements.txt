@@ -3,3 +3,4 @@ chardet
 openpyxl
 streamlit
 requests
+coverage

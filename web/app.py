@@ -32,6 +32,7 @@ LEGACY_PREVIEW_EXTS = {".xls", ".ods"}
 WORKBOOK_EXTS = MODERN_EXCEL_EXTS | LEGACY_PREVIEW_EXTS
 SUPPORTED_EXTS = TEXTUAL_EXTS | WORKBOOK_EXTS
 MAX_REMOTE_FILE_MB = 100
+MAX_REMOTE_FILE_BYTES = MAX_REMOTE_FILE_MB * 1024 * 1024
 SEMANTIC_ROLE_OPTIONS = ["auto", "ignore", "identifier", "name", "date", "amount", "measurement", "currency", "status", "department", "category", "notes"]
 
 
@@ -242,11 +243,30 @@ def infer_extension_from_response(
 
 def fetch_remote_source(raw_url: str, folder: Path) -> dict:
     url = normalize_public_url(raw_url)
-    response = requests.get(url, timeout=60, allow_redirects=True)
-    response.raise_for_status()
-    content = response.content
-    if len(content) > MAX_REMOTE_FILE_MB * 1024 * 1024:
-        raise ValueError(f"Remote file is larger than {MAX_REMOTE_FILE_MB} MB.")
+    response = requests.get(url, timeout=60, allow_redirects=True, stream=True)
+    try:
+        response.raise_for_status()
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                declared_size = int(content_length)
+            except ValueError:
+                declared_size = None
+            if declared_size and declared_size > MAX_REMOTE_FILE_BYTES:
+                raise ValueError(f"Remote file is larger than {MAX_REMOTE_FILE_MB} MB.")
+
+        chunks: list[bytes] = []
+        downloaded = 0
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if not chunk:
+                continue
+            downloaded += len(chunk)
+            if downloaded > MAX_REMOTE_FILE_BYTES:
+                raise ValueError(f"Remote file is larger than {MAX_REMOTE_FILE_MB} MB.")
+            chunks.append(chunk)
+        content = b"".join(chunks)
+    finally:
+        response.close()
 
     filename = remote_filename(raw_url, response)
     ext = infer_extension_from_response(raw_url, response, filename, content)
@@ -381,13 +401,10 @@ def heal_support_message(ext: str) -> tuple[bool, str]:
 
 
 def inspect_local_bytes(file_bytes: bytes, suffix: str) -> tuple[list[str], bool, Optional[str]]:
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(file_bytes)
-        tmp_path = Path(tmp.name)
-    try:
+    with tempfile.TemporaryDirectory(prefix="sheet_doctor_local_inspect_") as tmpdir:
+        tmp_path = Path(tmpdir) / f"inspect{suffix}"
+        tmp_path.write_bytes(file_bytes)
         return workbook_sheet_info(tmp_path)
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
 
 def inspect_local_workbook_semantics(
@@ -398,10 +415,9 @@ def inspect_local_workbook_semantics(
     header_row_override: Optional[int] = None,
     role_overrides: Optional[dict[int, str]] = None,
 ) -> tuple[Optional[dict], Optional[str]]:
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(file_bytes)
-        tmp_path = Path(tmp.name)
-    try:
+    with tempfile.TemporaryDirectory(prefix="sheet_doctor_local_semantic_") as tmpdir:
+        tmp_path = Path(tmpdir) / f"semantic{suffix}"
+        tmp_path.write_bytes(file_bytes)
         return workbook_semantic_info(
             tmp_path,
             sheet_name=sheet_name,
@@ -409,8 +425,6 @@ def inspect_local_workbook_semantics(
             header_row_override=header_row_override,
             role_overrides=role_overrides,
         )
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
 
 def inspect_remote_url(url: str) -> tuple[list[str], bool, Optional[str]]:
@@ -889,7 +903,6 @@ def set_visuals() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
         :root {
             --qt-bg: #ffffff;
             --qt-bg-secondary: #fafafe;
@@ -924,7 +937,7 @@ def set_visuals() -> None:
         .stApp {
             background: linear-gradient(180deg, var(--qt-bg) 0%, var(--qt-bg-secondary) 100%);
             color: var(--qt-text);
-            font-family: "Inter", system-ui, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
         .block-container {
             padding-top: 2rem;
@@ -938,11 +951,11 @@ def set_visuals() -> None:
             background: transparent;
         }
         h1, h2, h3, p, label, .stCaption, .stMarkdown, .stText, .stRadio, .stMetric, .stAlert {
-            font-family: "Inter", system-ui, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             color: var(--qt-text);
         }
         code, pre, .stCode, .stJson {
-            font-family: "JetBrains Mono", monospace !important;
+            font-family: "SFMono-Regular", Menlo, Consolas, monospace !important;
         }
         .doctor-panel {
             background: var(--qt-surface);
@@ -1249,6 +1262,9 @@ def main() -> None:
             height=110,
             disabled=processing,
             placeholder="One public file URL per line. Supports direct links and common public share links from GitHub, Dropbox, Google Drive, OneDrive, Box, and similar hosts.",
+        )
+        st.caption(
+            f"Public URL mode makes outbound network requests and rejects remote files above {MAX_REMOTE_FILE_MB} MB."
         )
 
         sources = source_items(st.session_state.get("uploads_input") or [], st.session_state.get("public_urls_input", ""))
