@@ -3,17 +3,21 @@
 csv-doctor diagnose.py
 Part of sheet-doctor — https://github.com/razzo007/sheet-doctor
 
-Analyses a CSV file for common data quality problems and outputs a JSON
-health report to stdout. Designed to be run by Claude Code's csv-doctor skill.
+Analyses a messy tabular file for common data quality problems and outputs a
+JSON health report to stdout. Designed to be run by Claude Code's csv-doctor
+skill.
 
 Usage:
-    python diagnose.py <path-to-csv>
+    python diagnose.py <path-to-file> [--sheet NAME | --all-sheets]
 
 Exit codes:
     0 — script ran successfully (issues may still have been found)
     1 — script failed (file not found, completely unreadable, etc.)
 """
 
+from __future__ import annotations
+
+import argparse
 import sys
 import json
 import io
@@ -29,9 +33,30 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from sheet_doctor import __version__ as TOOL_VERSION
 from sheet_doctor.contracts import build_contract, build_run_summary
-from loader import load_file
+from loader import ALL_FORMATS, load_file
 from column_detector import analyse_dataframe
 from issue_taxonomy import build_issue, infer_healing_mode
+
+
+def supported_formats_label() -> str:
+    return ", ".join(sorted(ALL_FORMATS))
+
+
+def row_cells_from_values(values) -> list[str]:
+    return ["" if value is None else str(value) for value in values]
+
+
+def rebuild_raw_rows(loaded: dict) -> list[list[str]]:
+    raw_text = loaded.get("raw_text")
+    delimiter = loaded.get("delimiter")
+    if raw_text is not None and delimiter is not None:
+        return list(csv.reader(io.StringIO(raw_text), delimiter=delimiter))
+
+    df = loaded["dataframe"]
+    return [row_cells_from_values(df.columns.tolist())] + [
+        row_cells_from_values(row)
+        for row in df.itertuples(index=False, name=None)
+    ]
 
 
 def check_column_alignment(raw_rows: list[list[str]]) -> dict:
@@ -380,22 +405,36 @@ def build_normalized_issues(report: dict, healing_mode: str) -> list[dict]:
     )
 
 
-def build_report(file_path: Path) -> dict:
+def build_report(
+    file_path: Path,
+    *,
+    sheet_name: str | None = None,
+    consolidate_sheets: bool | None = None,
+) -> dict:
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    if file_path.suffix.lower() not in (".csv", ".tsv", ".txt"):
-        raise ValueError(f"Expected a CSV/TSV/TXT file, got: {file_path.suffix}")
+    if file_path.suffix.lower() not in ALL_FORMATS:
+        raise ValueError(
+            f"Unsupported format '{file_path.suffix}'. Supported: {supported_formats_label()}"
+        )
 
-    loaded = load_file(file_path)
-    encoding_info = loaded["encoding_info"]
+    loaded = load_file(
+        file_path,
+        sheet_name=sheet_name,
+        consolidate_sheets=consolidate_sheets,
+    )
+    encoding_info = loaded["encoding_info"] or {
+        "detected": "binary/structured",
+        "confidence": None,
+        "is_utf8": True,
+        "suspicious_chars": [],
+    }
     delimiter = loaded["delimiter"]
-    raw_text = loaded["raw_text"]
     df = loaded["dataframe"]
     column_semantics = analyse_dataframe(df)
     healing_mode = infer_healing_mode(list(df.columns), column_semantics)
-
-    raw_rows = list(csv.reader(io.StringIO(raw_text), delimiter=delimiter))
+    raw_rows = rebuild_raw_rows(loaded)
 
     report = {
         "contract": build_contract("csv_doctor.diagnose"),
@@ -404,7 +443,7 @@ def build_report(file_path: Path) -> dict:
         "file": file_path.name,
         "detected_format": loaded["detected_format"],
         "detected_encoding": loaded["detected_encoding"],
-        "total_rows": len(raw_rows),
+        "total_rows": loaded.get("original_rows", len(raw_rows)),
         "healing_mode_candidate": healing_mode,
         "dialect": {"delimiter": delimiter},
         "encoding": encoding_info,
@@ -416,6 +455,8 @@ def build_report(file_path: Path) -> dict:
         "column_quality": check_columns_quality(df),
         "column_semantics": column_semantics,
         "row_accounting": loaded.get("row_accounting"),
+        "sheet_name": loaded.get("sheet_name"),
+        "sheet_names": loaded.get("sheet_names"),
     }
 
     if loaded["warnings"]:
@@ -437,40 +478,42 @@ def build_report(file_path: Path) -> dict:
             "parsed_rows_total": report["row_accounting"].get("parsed_rows_total", len(df)),
             "issues_found": report["summary"]["issue_count"],
             "verdict": report["summary"]["verdict"],
+            "sheet_name": loaded.get("sheet_name"),
+            "consolidated_sheets": bool(consolidate_sheets),
             "degraded_mode_active": bool(loaded.get("degraded_mode", {}).get("active", False)),
         },
     )
     return report
 
 
-def main():
-    if len(sys.argv) < 2:
-        print(
-            json.dumps({"error": "No file path provided. Usage: diagnose.py <file.csv>"}),
-            file=sys.stdout,
-        )
-        sys.exit(1)
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Diagnose messy tabular files.")
+    parser.add_argument("input", help="Input file path")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--sheet", dest="sheet_name", help="Workbook sheet name to diagnose")
+    group.add_argument(
+        "--all-sheets",
+        dest="all_sheets",
+        action="store_true",
+        help="Consolidate compatible workbook sheets before diagnosing",
+    )
+    return parser.parse_args(argv)
 
-    file_path = Path(sys.argv[1])
+
+def main():
+    args = parse_args(sys.argv[1:])
+    file_path = Path(args.input)
 
     if not file_path.exists():
-        print(
-            json.dumps({"error": f"File not found: {file_path}"}),
-            file=sys.stdout,
-        )
-        sys.exit(1)
-
-    if file_path.suffix.lower() not in (".csv", ".tsv", ".txt"):
-        print(
-            json.dumps(
-                {"error": f"Expected a CSV/TSV/TXT file, got: {file_path.suffix}"}
-            ),
-            file=sys.stdout,
-        )
+        print(json.dumps({"error": f"File not found: {file_path}"}), file=sys.stdout)
         sys.exit(1)
 
     try:
-        report = build_report(file_path)
+        report = build_report(
+            file_path,
+            sheet_name=args.sheet_name,
+            consolidate_sheets=True if args.all_sheets else None,
+        )
     except Exception as e:
         print(json.dumps({"error": f"Could not read file: {e}"}), file=sys.stdout)
         sys.exit(1)

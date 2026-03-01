@@ -2,7 +2,7 @@
 
 > Designer by heart. Back in code after 8 years. Built this because someone had to — and no one else was doing it for free.
 
-**sheet-doctor** is a free, open-source Claude Code Skills Pack for diagnosing and fixing messy spreadsheet files. Drop a broken file in, get a human-readable health report out. No SaaS subscription. No upload limits. No data leaving your machine.
+**sheet-doctor** is a free, open-source Claude Code Skills Pack for diagnosing and fixing messy spreadsheet files. Drop a broken file in, get a human-readable health report out. No SaaS subscription. Local-first by default. Public URL mode downloads remote files only when you explicitly use it.
 
 ---
 
@@ -96,19 +96,20 @@ Deployable machine outputs:
 
 ## Supported file formats
 
-`csv-doctor` reads all of these — no manual conversion needed:
+`csv-doctor` does not support every format equally. This is the real matrix:
 
-| Format | Notes |
-|--------|-------|
-| `.csv` | Delimiter auto-detected (comma, tab, pipe, semicolon) |
-| `.tsv` | Tab-separated |
-| `.txt` | Sniffed like `.csv`; rejects plain-text files that are not tabular |
-| `.xlsx` | Excel (modern) |
-| `.xls` | Excel (legacy) — requires `pip install xlrd` |
-| `.xlsm` | Excel macro-enabled — macros ignored, data loaded |
-| `.ods` | OpenDocument spreadsheet — requires `pip install odfpy` |
-| `.json` | Array of objects or nested dict (auto-flattened) |
-| `.jsonl` | JSON Lines — one object per line |
+| Format | Loader | Diagnose | Heal | UI |
+|--------|--------|----------|------|----|
+| `.csv` | ✅ | ✅ | ✅ | ✅ |
+| `.tsv` | ✅ | ✅ | ✅ | ✅ |
+| `.txt` tabular only | ✅ | ✅ | ✅ | ✅ |
+| `.xlsx` | ✅ | ✅ (`--sheet` / `--all-sheets` for multi-sheet workbooks) | ✅ tabular rescue | ✅ |
+| `.xls` | ✅ (`xlrd` required) | ✅ (`--sheet` / `--all-sheets`) | ⚠️ tabular rescue only | ⚠️ fallback/tabular rescue |
+| `.xlsm` | ✅ | ✅ (`--sheet` / `--all-sheets`) | ✅ tabular rescue | ✅ |
+| `.ods` | ✅ (`odfpy` required) | ✅ (`--sheet` / `--all-sheets`) | ⚠️ tabular rescue only | ⚠️ fallback/tabular rescue |
+| `.json` | ✅ | ✅ | ✅ | ✅ |
+| `.jsonl` | ✅ | ✅ | ✅ | ✅ |
+| `.parquet` | ❌ | ❌ | ❌ | ❌ |
 
 For files with **mixed encodings** (Latin-1 and UTF-8 bytes on different rows), the loader decodes line-by-line and never crashes.
 
@@ -116,6 +117,10 @@ For **large inputs**, the loader now applies explicit safety rails:
 - warns on large file sizes and row counts before processing becomes risky
 - enters a visible `degraded_mode` when the file is likely to be slow or memory-heavy
 - rejects files beyond hard in-memory safety limits with a clear error instead of crashing unpredictably
+
+Hard limits:
+- `250 MB` file size
+- `1,000,000` rows
 
 For **Excel/ODS files with multiple sheets**, the loader prompts you to pick a sheet in interactive sessions. In non-interactive/API use, it requires `sheet_name=...` or `consolidate_sheets=True` and raises a clear error listing the available sheets.
 
@@ -132,7 +137,11 @@ For **optional dependencies and corrupt workbook files**, the loader now fails m
 
 ## Install
 
-You need [Claude Code](https://claude.ai/code) and Python 3.9+ installed.
+You need [Claude Code](https://claude.ai/code) and Python installed.
+
+Supported Python versions:
+- CI-tested: `3.9`, `3.11`, `3.12`
+- Project requirement: `>=3.9`
 
 **1. Clone the repo**
 
@@ -151,19 +160,14 @@ pip install -r requirements.txt
 
 > On Windows: `.venv\Scripts\activate`
 
-Or install from package metadata:
-
-```bash
-pip install .
-pip install .[all]
-```
-
 Optional extras for additional formats:
 
 ```bash
 pip install xlrd    # .xls legacy Excel files
 pip install odfpy  # .ods OpenDocument files
 ```
+
+`pip install .` installs package metadata and shared Python modules, but it does **not** currently create a standalone `sheet-doctor` CLI. Day-to-day use is still repo-first: run the scripts directly or register the skills folder with Claude Code.
 
 **3. Run the loader tests**
 
@@ -241,6 +245,24 @@ Remote file-type detection:
 - If the public URL hides the extension, the UI now infers the file type from the response headers and file signature
 - This fixes masked links where the shared URL looks like a web page but actually serves an Excel/CSV/ODS file
 
+## Known limitations
+
+- `csv-doctor` is strongest on flat tabular data. Workbook rescue is a heuristic flatten-and-clean flow, not workbook-native reconstruction.
+- Password-protected / encrypted Excel files are not supported.
+- `.parquet` is not supported.
+- Large files are still processed in memory. Guardrails prevent obviously unsafe runs, but this is not a streaming pipeline.
+- Public URL mode depends on the remote server actually serving a directly downloadable file.
+- Health scores are heuristic summaries, not guarantees of business correctness.
+- `excel-doctor` is the better fit when preserving workbook structure matters more than flattening the data into a readable table.
+
+## Security / privacy
+
+- Local files stay local unless you use public URL mode in the UI.
+- Public URL mode makes outbound network requests to fetch remote files.
+- The UI currently imports Google Fonts, which is also a network request.
+- Uploaded/remote files are processed through temporary files during local UI use; they are not intended to be stored permanently, but this is not a hardened secure-processing boundary.
+- No telemetry or analytics calls are built into the Python scripts themselves.
+
 UI notes:
 - Ongoing interface-specific notes live in `web/UI_CHANGELOG.md`
 
@@ -257,17 +279,29 @@ source .venv/bin/activate
 python skills/csv-doctor/scripts/diagnose.py sample-data/messy_sample.csv
 ```
 
-**`extreme_mess.csv`** — the full disaster: mixed Latin-1/UTF-8 encoding, BOM, null bytes, smart quotes, phantom commas, 7 date formats, 8 amount formats, near-duplicates, a TOTAL subtotal trap, and more. 50 rows of authentic chaos.
+**`extreme_mess.csv`** — the full disaster: mixed Latin-1/UTF-8 encoding, BOM, null bytes, smart quotes, phantom commas, 7 date formats, 8 amount formats, near-duplicates, a TOTAL subtotal trap, and more. Small file, high mess.
 
 ```bash
 # Diagnose it
 python skills/csv-doctor/scripts/diagnose.py sample-data/extreme_mess.csv
+
+# Diagnose a workbook sheet through csv-doctor's tabular lens
+python skills/csv-doctor/scripts/diagnose.py sample-data/messy_sample.xlsx --sheet "Orders"
+
+# Diagnose JSON
+python skills/csv-doctor/scripts/diagnose.py /path/to/export.json
+
+# Diagnose JSON Lines
+python skills/csv-doctor/scripts/diagnose.py /path/to/export.jsonl
 
 # Inspect per-column semantics only
 python skills/csv-doctor/scripts/column_detector.py sample-data/extreme_mess.csv
 
 # Build a plain-English health report + JSON artifact
 python skills/csv-doctor/scripts/reporter.py sample-data/extreme_mess.csv
+
+# Build a report from one workbook sheet
+python skills/csv-doctor/scripts/reporter.py sample-data/messy_sample.xlsx /tmp/messy_orders_report.txt /tmp/messy_orders_report.json --sheet "Orders"
 
 # Fix it — outputs extreme_mess_healed.xlsx with 3 sheets
 python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv
@@ -289,12 +323,7 @@ Machine-readable contracts:
 - Excel diagnose: [`schemas/excel-diagnose.schema.json`](/Users/razzo/Documents/For%20Codex/sheet-doctor/schemas/excel-diagnose.schema.json)
 - Excel heal summary: [`schemas/excel-heal-summary.schema.json`](/Users/razzo/Documents/For%20Codex/sheet-doctor/schemas/excel-heal-summary.schema.json)
 
-Current `extreme_mess.csv` score progression:
-- Raw Health Score: `32/100`
-- Recoverability Score: `84/100`
-- Post-Heal Score: `95/100`
-
-This means the source file is badly damaged, but most of it is recoverable automatically and the cleaned output is close to production-usable.
+Current `extreme_mess.csv` score progression can be regenerated locally with `reporter.py`. Treat the scores as heuristic guidance, not a stability guarantee across every Python / pandas / chardet version combination.
 
 Recent `csv-doctor/heal.py` edge-case coverage:
 - Quarantines text formulas like `=SUM(...)` as `Excel formula found, not data`

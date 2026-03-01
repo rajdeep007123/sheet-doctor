@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import sys
@@ -396,13 +397,26 @@ def render_text_report(report_json: dict[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def build_report(file_path: Path) -> dict[str, Any]:
-    diagnose_report = build_diagnose_report(file_path)
+def build_report(
+    file_path: Path,
+    *,
+    sheet_name: str | None = None,
+    consolidate_sheets: bool | None = None,
+) -> dict[str, Any]:
+    diagnose_report = build_diagnose_report(
+        file_path,
+        sheet_name=sheet_name,
+        consolidate_sheets=consolidate_sheets,
+    )
     column_report = diagnose_report.get("column_semantics", {})
     healing_mode = diagnose_report.get("healing_mode_candidate", "generic")
 
     raw_score = calc_health_score(diagnose_report, column_report)
-    heal_result = execute_healing(file_path)
+    heal_result = execute_healing(
+        file_path,
+        sheet_name=sheet_name,
+        consolidate_sheets=consolidate_sheets,
+    )
     clean_output_diagnose, clean_output_columns = build_clean_output_diagnose_report(heal_result)
     post_heal_score = calc_health_score(clean_output_diagnose, clean_output_columns)
     recoverability_score = calc_recoverability_score(heal_result, post_heal_score)
@@ -442,6 +456,7 @@ def build_report(file_path: Path) -> dict[str, Any]:
             "columns": diagnose_report.get("column_count", {}).get("expected", column_report.get("summary", {}).get("total_columns", 0)),
             "format": diagnose_report.get("detected_format", "unknown"),
             "encoding": diagnose_report.get("detected_encoding", "unknown"),
+            "sheet_name": diagnose_report.get("sheet_name"),
             "scanned_at": datetime.now().isoformat(timespec="seconds"),
         },
         "health_score": raw_score,
@@ -474,6 +489,7 @@ def build_report(file_path: Path) -> dict[str, Any]:
         metrics={
             "detected_format": diagnose_report.get("detected_format", "unknown"),
             "healing_mode": heal_result["mode"],
+            "sheet_name": diagnose_report.get("sheet_name"),
             "raw_health_score": raw_score["score"],
             "recoverability_score": recoverability_score["score"],
             "post_heal_score": post_heal_score["score"],
@@ -491,24 +507,41 @@ def default_output_paths(input_path: Path) -> tuple[Path, Path]:
     return base.with_suffix(".txt"), base.with_suffix(".json")
 
 
-def main() -> int:
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "Usage: reporter.py <file> [output.txt] [output.json]"}))
-        return 1
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate a human-readable report for a messy tabular file.")
+    parser.add_argument("input", help="Input file path")
+    parser.add_argument("output_txt", nargs="?", default=None, help="Optional output .txt path")
+    parser.add_argument("output_json", nargs="?", default=None, help="Optional output .json path")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--sheet", dest="sheet_name", help="Workbook sheet name to report on")
+    group.add_argument(
+        "--all-sheets",
+        dest="all_sheets",
+        action="store_true",
+        help="Consolidate compatible workbook sheets before building the report",
+    )
+    return parser.parse_args(argv)
 
-    input_path = Path(sys.argv[1])
+
+def main() -> int:
+    args = parse_args(sys.argv[1:])
+    input_path = Path(args.input)
     if not input_path.exists():
         print(json.dumps({"error": f"File not found: {input_path}"}))
         return 1
 
     txt_path, json_path = default_output_paths(input_path)
-    if len(sys.argv) >= 3:
-        txt_path = Path(sys.argv[2])
-    if len(sys.argv) >= 4:
-        json_path = Path(sys.argv[3])
+    if args.output_txt:
+        txt_path = Path(args.output_txt)
+    if args.output_json:
+        json_path = Path(args.output_json)
 
     try:
-        report_json = build_report(input_path)
+        report_json = build_report(
+            input_path,
+            sheet_name=args.sheet_name,
+            consolidate_sheets=True if args.all_sheets else None,
+        )
     except Exception as exc:
         print(json.dumps({"error": str(exc)}))
         return 1

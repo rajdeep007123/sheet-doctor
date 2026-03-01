@@ -6,6 +6,24 @@ All notable changes to sheet-doctor are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **`csv-doctor` / `diagnose.py`** — format support now matches `loader.py`:
+  - Supports `.csv`, `.tsv`, `.txt`, `.xlsx`, `.xls`, `.xlsm`, `.ods`, `.json`, and `.jsonl`
+  - Added `--sheet <name>` and `--all-sheets` for multi-sheet workbook diagnosis in non-interactive runs
+  - Reports `sheet_name` / `sheet_names` when workbook inputs are used
+- **`csv-doctor` / `reporter.py`** — now reports on the same format set as `diagnose.py`:
+  - Added `--sheet <name>` and `--all-sheets` for workbook report generation
+  - Passes workbook selection through to both diagnosis and healing projection
+- **Tests** — added explicit diagnose/reporter format coverage for `.xlsx`, `.xlsm`, `.json`, `.jsonl`, and `.ods` when the optional dependency is available
+- **Docs** — README, `skills/csv-doctor/SKILL.md`, and `skills/csv-doctor/README.md` made more honest:
+  - removed `No upload limits`
+  - removed the blanket `No data leaving your machine` claim in favor of local-first wording plus explicit public-URL network behavior
+  - removed stale hard-coded score examples
+  - added a real format matrix (`loader` vs `diagnose` vs `heal` vs UI)
+  - documented hard in-memory limits (`250 MB`, `1,000,000 rows`)
+  - documented workbook rescue as heuristic/best-effort
+  - documented unsupported cases such as password-protected Excel and parquet
+
 ---
 
 ## [0.5.0] — 2026-03-01

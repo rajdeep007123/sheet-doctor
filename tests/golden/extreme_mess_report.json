@@ -103,7 +103,8 @@
     "malformed_rows": 8,
     "parsed_rows": 46,
     "rows": 51,
-    "scanned_at": "<TIMESTAMP>"
+    "scanned_at": "<TIMESTAMP>",
+    "sheet_name": null
   },
   "healing_projection": {
     "action_counts": "<PLATFORM_SPECIFIC>",
@@ -444,7 +445,8 @@
       "post_heal_score": 79,
       "quarantine_rows": 5,
       "raw_health_score": 32,
-      "recoverability_score": 71
+      "recoverability_score": 71,
+      "sheet_name": null
     },
     "output_file": null,
     "script": "reporter.py",
@@ -1152,12 +1154,14 @@
         "generated_at": "<TIMESTAMP>",
         "input_file": "<INPUT_FILE>",
         "metrics": {
+          "consolidated_sheets": false,
           "degraded_mode_active": false,
           "detected_format": "csv",
           "healing_mode_candidate": "schema-specific",
           "issues_found": 7,
           "parsed_rows_total": 46,
           "raw_rows_total": 52,
+          "sheet_name": null,
           "verdict": "CRITICAL"
         },
         "output_file": null,
@@ -1171,6 +1175,8 @@
         "warnings_count": 1
       },
       "schema_version": "1.0.0",
+      "sheet_name": null,
+      "sheet_names": null,
       "summary": {
         "issue_count": 7,
         "verdict": "CRITICAL"

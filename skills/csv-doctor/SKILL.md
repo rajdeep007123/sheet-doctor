@@ -31,6 +31,11 @@ This skill is appropriate for:
 
 This skill is not just for literal CSV files. Use it whenever the user has a messy table-like file and the goal is diagnosis, explanation, or repair.
 
+Important scope notes:
+- For workbook inputs with multiple sheets, non-interactive runs should pass `--sheet <name>` or `--all-sheets`.
+- For workbook-native structural preservation, prefer `excel-doctor`.
+- `csv-doctor` treats workbook inputs as tabular rescue targets, not as full spreadsheet-preservation jobs.
+
 ## Scripts
 
 ### `scripts/loader.py`
@@ -57,6 +62,8 @@ What it checks:
 - empty columns
 - single-value columns
 - `column_semantics` from `column_detector.py`
+- accepts loader-supported formats, not just literal CSV files
+- requires explicit sheet selection or consolidation for multi-sheet workbook inputs in non-interactive runs
 
 Primary output:
 - JSON to stdout
@@ -112,6 +119,8 @@ What it does:
 - groups issues by severity
 - includes recommended actions and assumptions
 - shows a PII warning when likely PII is present
+- accepts the same formats as `diagnose.py`
+- requires explicit sheet selection or consolidation for multi-sheet workbook inputs in non-interactive runs
 
 Use it when the user asks for:
 - a report
@@ -140,11 +149,13 @@ What it fixes:
 - formula residue rows
 - merged-cell style categorical gaps
 - combined amount/currency values
+- tabular rescue for spreadsheet/JSON inputs supported by `loader.py`
 
 What it does not do:
 - invent business truth
 - silently keep formula text as trusted data
 - remove PII automatically
+- preserve arbitrary workbook structure the way a spreadsheet-native cleaner would
 
 Use it when the user wants:
 - a fixed workbook

@@ -13,6 +13,15 @@ It exists to answer five practical questions:
 
 `csv-doctor` handles messy tabular exports across text, spreadsheet, and JSON-like formats.
 
+What it is:
+- a tabular rescue tool
+- strong on flat files and table-like workbook sheets
+
+What it is not:
+- a workbook-native spreadsheet repair engine
+- a multi-file merge tool
+- a password-protected Excel opener
+
 Current script set:
 - `scripts/loader.py`
 - `scripts/diagnose.py`
@@ -42,6 +51,15 @@ Accepted formats:
 - `.json`
 - `.jsonl`
 
+Actual script support matrix:
+
+| Script | `.csv/.tsv/.txt` | `.xlsx/.xls/.xlsm/.ods` | `.json/.jsonl` |
+|---|---|---|---|
+| `loader.py` | ✅ | ✅ | ✅ |
+| `diagnose.py` | ✅ | ✅ (`--sheet` / `--all-sheets` for multi-sheet workbooks) | ✅ |
+| `reporter.py` | ✅ | ✅ (`--sheet` / `--all-sheets`) | ✅ |
+| `heal.py` | ✅ | ✅ tabular rescue | ✅ |
+
 ### `diagnose.py`
 Structural health checker.
 
@@ -55,6 +73,9 @@ Reports:
 - empty columns
 - single-value columns
 - `column_semantics`
+
+Workbook note:
+- multi-sheet workbook inputs need `--sheet <name>` or `--all-sheets` in non-interactive runs
 
 ### `column_detector.py`
 Semantic profiler.
@@ -97,6 +118,10 @@ Sections:
 - column breakdown
 - recommended actions
 - assumptions
+
+Workbook note:
+- uses the same sheet-selection rules as `diagnose.py`
+- for workbook-native diagnosis/preservation, use `excel-doctor`
 
 ### `heal.py`
 Repair pipeline.
@@ -164,6 +189,9 @@ Diagnose:
 
 ```bash
 python skills/csv-doctor/scripts/diagnose.py sample-data/extreme_mess.csv
+python skills/csv-doctor/scripts/diagnose.py sample-data/messy_sample.xlsx --sheet "Orders"
+python skills/csv-doctor/scripts/diagnose.py /path/to/export.json
+python skills/csv-doctor/scripts/diagnose.py /path/to/export.jsonl
 ```
 
 Column analysis only:
@@ -176,6 +204,7 @@ Human-readable report:
 
 ```bash
 python skills/csv-doctor/scripts/reporter.py sample-data/extreme_mess.csv
+python skills/csv-doctor/scripts/reporter.py sample-data/messy_sample.xlsx /tmp/orders_report.txt /tmp/orders_report.json --sheet "Orders"
 ```
 
 Repair:
@@ -211,3 +240,4 @@ If you build on top of `csv-doctor`:
 - treat `loader.py` as the shared entry point
 - prefer reusing `diagnose.py`, `column_detector.py`, and `reporter.py` outputs rather than rebuilding similar logic elsewhere
 - do not silently turn uncertain rows into trusted facts; quarantine them and log why
+- document whether your feature is table rescue or workbook-native preservation
