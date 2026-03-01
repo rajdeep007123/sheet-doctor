@@ -39,6 +39,7 @@ class ExcelDoctorTests(unittest.TestCase):
         self.assertEqual(report["workbook_mode"], "workbook-native")
         self.assertEqual([item["name"] for item in report["sheets"]["hidden"]], ["Hidden"])
         self.assertEqual([item["name"] for item in report["sheets"]["very_hidden"]], ["VeryHidden"])
+        self.assertEqual(report["workbook_triage"]["classification"], "manual_spreadsheet_review_required")
 
     def test_xlsm_fixture_is_supported_for_workbook_native_diagnose_and_heal(self):
         fixture = LOADER_FIXTURE_DIR / "multisheet.xlsm"
@@ -57,6 +58,7 @@ class ExcelDoctorTests(unittest.TestCase):
         self.assertIn("Report", report["header_bands"])
         self.assertEqual(report["header_bands"]["Report"]["rows"], [3, 4])
         self.assertEqual(report["metadata_rows"]["Report"], [1, 2])
+        self.assertEqual(report["workbook_triage"]["classification"], "tabular_rescue_recommended")
 
     def test_preamble_fixture_reports_metadata_rows(self):
         report = EXCEL_DIAGNOSE.build_report(FIXTURE_DIR / "preamble_report.xlsx")
@@ -77,6 +79,16 @@ class ExcelDoctorTests(unittest.TestCase):
         report = EXCEL_DIAGNOSE.build_report(FIXTURE_DIR / "duplicate_headers.xlsx")
         self.assertEqual(report["duplicate_headers"]["Dupes"], ["customer_id"])
         self.assertIn("amount", report["mixed_types"]["Dupes"])
+        self.assertEqual(report["workbook_triage"]["classification"], "workbook_native_safe_cleanup")
+
+    def test_diagnose_reports_residual_risk_sections(self):
+        report = EXCEL_DIAGNOSE.build_report(FIXTURE_DIR / "formula_cases.xlsx")
+        residual = report["residual_risk"]
+        self.assertIn("safe_auto_fix_candidates", residual)
+        self.assertIn("remaining_risks", residual)
+        self.assertIn("manual_review_required", residual)
+        self.assertIn("workbook_native_risks", residual)
+        self.assertTrue(any(entry["issue"] == "formula_errors" for entry in residual["manual_review_required"]))
 
     def test_notes_totals_fixture_reports_notes_and_totals(self):
         report = EXCEL_DIAGNOSE.build_report(FIXTURE_DIR / "notes_totals.xlsx")
@@ -96,38 +108,47 @@ class ExcelDoctorTests(unittest.TestCase):
             output_path = Path(tmpdir) / "stacked_headers_healed.xlsx"
             changes, stats = EXCEL_HEAL.execute_healing(FIXTURE_DIR / "stacked_headers.xlsx", output_path)
             workbook = load_workbook(output_path)
-            sheet = workbook["Report"]
-            self.assertEqual(sheet["A1"].value, "Employee ID")
-            self.assertEqual(sheet["B1"].value, "Employee Name")
-            self.assertIn("Change Log", workbook.sheetnames)
-            self.assertGreater(stats["metadata_rows_removed"], 0)
-            self.assertGreater(stats["header_bands_flattened"], 0)
-            self.assertGreater(len(changes), 0)
+            try:
+                sheet = workbook["Report"]
+                self.assertEqual(sheet["A1"].value, "Employee ID")
+                self.assertEqual(sheet["B1"].value, "Employee Name")
+                self.assertIn("Change Log", workbook.sheetnames)
+                self.assertGreater(stats["metadata_rows_removed"], 0)
+                self.assertGreater(stats["header_bands_flattened"], 0)
+                self.assertGreater(len(changes), 0)
+            finally:
+                workbook.close()
 
     def test_heal_trims_edge_columns_unmerges_cells_and_normalises_dates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "merged_edges_healed.xlsx"
             _, stats = EXCEL_HEAL.execute_healing(FIXTURE_DIR / "merged_edges.xlsx", output_path)
             workbook = load_workbook(output_path)
-            sheet = workbook["Orders"]
-            self.assertEqual(sheet.max_column, 3)
-            self.assertFalse(sheet.merged_cells.ranges)
-            self.assertEqual(sheet["B2"].value, "Acme Corp")
-            self.assertEqual(sheet["B3"].value, "Acme Corp")
-            self.assertGreater(stats["merged_ranges_unmerged"], 0)
-            self.assertGreater(stats["edge_columns_trimmed"], 0)
-            self.assertGreater(stats["empty_rows_removed"], 0)
+            try:
+                sheet = workbook["Orders"]
+                self.assertEqual(sheet.max_column, 3)
+                self.assertFalse(sheet.merged_cells.ranges)
+                self.assertEqual(sheet["B2"].value, "Acme Corp")
+                self.assertEqual(sheet["B3"].value, "Acme Corp")
+                self.assertGreater(stats["merged_ranges_unmerged"], 0)
+                self.assertGreater(stats["edge_columns_trimmed"], 0)
+                self.assertGreater(stats["empty_rows_removed"], 0)
+            finally:
+                workbook.close()
 
     def test_heal_normalises_text_dates_and_removes_empty_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "text_date_cleanup_healed.xlsx"
             _, stats = EXCEL_HEAL.execute_healing(FIXTURE_DIR / "text_date_cleanup.xlsx", output_path)
             workbook = load_workbook(output_path)
-            sheet = workbook["TextDates"]
-            self.assertEqual(sheet["A2"].value, 'Smart "quote" text')
-            self.assertEqual(sheet["B2"].value, "2024-04-03")
-            self.assertEqual(sheet["B3"].value, "2024-05-06")
-            self.assertGreater(stats["dates_normalised"], 0)
+            try:
+                sheet = workbook["TextDates"]
+                self.assertEqual(sheet["A2"].value, 'Smart "quote" text')
+                self.assertEqual(sheet["B2"].value, "2024-04-03")
+                self.assertEqual(sheet["B3"].value, "2024-05-06")
+                self.assertGreater(stats["dates_normalised"], 0)
+            finally:
+                workbook.close()
 
     def test_structured_summary_reports_workbook_native_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -141,6 +162,7 @@ class ExcelDoctorTests(unittest.TestCase):
             )
         self.assertEqual(summary["mode"], "workbook-native")
         self.assertEqual(summary["run_summary"]["metrics"]["mode"], "workbook-native")
+        self.assertIn("before_after_issue_summary", summary)
 
     def test_structured_summary_includes_formula_preservation_warning(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -154,6 +176,25 @@ class ExcelDoctorTests(unittest.TestCase):
             )
         self.assertGreater(stats["formula_cells_preserved"], 0)
         self.assertTrue(any("does not recalculate formulas" in warning for warning in summary["warnings"]))
+        self.assertEqual(summary["workbook_triage"]["classification"], "manual_spreadsheet_review_required")
+
+    def test_structured_summary_reports_before_after_issue_counts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "messy_sample_healed.xlsx"
+            changes, stats = EXCEL_HEAL.execute_healing(ROOT / "sample-data" / "messy_sample.xlsx", output_path)
+            summary = EXCEL_HEAL.build_structured_summary(
+                input_path=ROOT / "sample-data" / "messy_sample.xlsx",
+                output_path=output_path,
+                changes=changes,
+                stats=stats,
+            )
+        before_after = summary["before_after_issue_summary"]["issue_counts"]
+        self.assertEqual(before_after["merged_ranges"]["before"], 1)
+        self.assertEqual(before_after["merged_ranges"]["after"], 0)
+        self.assertEqual(before_after["duplicate_headers"]["before"], 1)
+        self.assertEqual(before_after["duplicate_headers"]["after"], 0)
+        self.assertEqual(before_after["formula_errors"]["before"], 3)
+        self.assertEqual(before_after["formula_errors"]["after"], 3)
 
     def test_execute_healing_is_atomic_on_failure(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -161,15 +202,17 @@ class ExcelDoctorTests(unittest.TestCase):
             output_path = Path(tmpdir) / "atomic.xlsx"
             output_path.write_bytes(b"sentinel")
             workbook = load_workbook(input_path)
+            try:
+                def boom(_target):
+                    raise RuntimeError("save exploded")
 
-            def boom(_target):
-                raise RuntimeError("save exploded")
-
-            workbook.save = boom
-            with mock.patch.object(EXCEL_HEAL, "load_workbook", return_value=workbook):
-                with self.assertRaises(RuntimeError):
-                    EXCEL_HEAL.execute_healing(input_path, output_path)
-            self.assertEqual(output_path.read_bytes(), b"sentinel")
+                workbook.save = boom
+                with mock.patch.object(EXCEL_HEAL, "load_workbook", return_value=workbook):
+                    with self.assertRaises(RuntimeError):
+                        EXCEL_HEAL.execute_healing(input_path, output_path)
+                self.assertEqual(output_path.read_bytes(), b"sentinel")
+            finally:
+                workbook.close()
 
     def test_corrupt_workbook_raises_clear_value_error(self):
         with self.assertRaisesRegex(ValueError, "Could not read workbook"):
@@ -199,6 +242,20 @@ class ExcelDoctorTests(unittest.TestCase):
         self.assertEqual(legacy["mode"], "tabular-rescue-fallback")
         self.assertIn("flattened", tabular["tradeoff"])
         self.assertIn("preserving workbook", native["why"])
+
+    def test_ui_triage_recommendation_messages(self):
+        self.assertEqual(
+            WEB_APP_MODULE.workbook_triage_recommendation({"classification": "workbook_native_safe_cleanup"}),
+            "excel-doctor workbook-native cleanup",
+        )
+        self.assertEqual(
+            WEB_APP_MODULE.workbook_triage_recommendation({"classification": "tabular_rescue_recommended"}),
+            "csv-doctor tabular rescue",
+        )
+        self.assertEqual(
+            WEB_APP_MODULE.workbook_triage_recommendation({"classification": "manual_spreadsheet_review_required"}),
+            "manual review first",
+        )
 
     def test_xlsm_summary_warns_about_macro_preservation_limit(self):
         fixture = LOADER_FIXTURE_DIR / "multisheet.xlsm"

@@ -430,192 +430,300 @@ def build_manual_review_warnings(report: dict) -> list[str]:
     return warnings
 
 
+def issue_entry(issue: str, count: int, message: str) -> dict:
+    return {"issue": issue, "count": count, "message": message}
+
+
+def build_workbook_triage(report: dict) -> dict:
+    counts = report["issue_counts"]
+    if (
+        counts["formula_errors"] > 0
+        or counts["formula_cache_misses"] > 0
+        or counts["very_hidden_sheets"] > 0
+        or (counts["formula_cells"] > 0 and counts["hidden_sheets"] > 0)
+    ):
+        return {
+            "classification": "manual_spreadsheet_review_required",
+            "reason": "The workbook contains spreadsheet logic or hidden context that workbook-native cleanup can preserve but not safely validate.",
+            "confidence": 0.94,
+            "recommended_next_action": "Review formulas, hidden sheets, and cached-calculation state in Excel before trusting the workbook. Use tabular rescue only if flattening the workbook is acceptable.",
+        }
+    if (
+        counts["header_bands"] > 0
+        or counts["metadata_rows"] > 0
+        or counts["notes_rows"] > 0
+        or counts["structural_rows"] > 0
+        or counts["empty_edge_columns"] > 0
+    ):
+        return {
+            "classification": "tabular_rescue_recommended",
+            "reason": "The workbook looks like an exported report or table with preamble/header-band noise where flattening into rows and columns is often clearer than preserving workbook layout.",
+            "confidence": 0.82,
+            "recommended_next_action": "Prefer csv-doctor tabular rescue if you want Clean Data / Quarantine / Change Log output. Keep workbook-native cleanup only if the workbook layout itself still matters.",
+        }
+    return {
+        "classification": "workbook_native_safe_cleanup",
+        "reason": "The workbook mainly shows safe structural/text cleanup issues without strong signals that spreadsheet logic or report-style layout will dominate the recovery path.",
+        "confidence": 0.76,
+        "recommended_next_action": "Use excel-doctor workbook-native cleanup first, then rediagnose the healed workbook to review anything still remaining.",
+    }
+
+
+def build_residual_risk(report: dict) -> dict:
+    counts = report["issue_counts"]
+    safe_auto_fix_candidates = []
+    remaining_risks = []
+    manual_review_required = []
+    workbook_native_risks = []
+
+    if counts["merged_ranges"] > 0:
+        safe_auto_fix_candidates.append(issue_entry("merged_ranges", counts["merged_ranges"], "Merged ranges can usually be unmerged safely and filled from the anchor cell."))
+    if counts["duplicate_headers"] > 0:
+        safe_auto_fix_candidates.append(issue_entry("duplicate_headers", counts["duplicate_headers"], "Duplicate headers can usually be standardised and deduplicated safely."))
+    if counts["whitespace_headers"] > 0:
+        safe_auto_fix_candidates.append(issue_entry("whitespace_headers", counts["whitespace_headers"], "Whitespace-only header cleanup is low risk."))
+    if counts["empty_rows"] > 0:
+        safe_auto_fix_candidates.append(issue_entry("empty_rows", counts["empty_rows"], "Fully empty rows can usually be removed safely."))
+    if counts["empty_edge_columns"] > 0:
+        safe_auto_fix_candidates.append(issue_entry("empty_edge_columns", counts["empty_edge_columns"], "Fully empty workbook edge columns can usually be trimmed safely."))
+    if counts["header_bands"] > 0:
+        safe_auto_fix_candidates.append(issue_entry("header_bands", counts["header_bands"], "Stacked header bands can often be flattened when they behave like table headers."))
+    if counts["metadata_rows"] > 0:
+        safe_auto_fix_candidates.append(issue_entry("metadata_rows", counts["metadata_rows"], "Workbook preamble rows can often be removed before the true table header."))
+
+    if counts["mixed_type_columns"] > 0:
+        remaining_risks.append(issue_entry("mixed_type_columns", counts["mixed_type_columns"], "Mixed-type columns may still require manual decisions about which values are valid data."))
+    if counts["single_value_columns"] > 0:
+        remaining_risks.append(issue_entry("single_value_columns", counts["single_value_columns"], "Single-value columns may be legitimate or may be fill-down artifacts; workbook-native cleanup cannot know intent."))
+    if counts["date_format_columns"] > 0:
+        remaining_risks.append(issue_entry("date_format_columns", counts["date_format_columns"], "Text date cleanup is heuristic and ambiguous dates may still need manual review."))
+
+    if counts["formula_cells"] > 0:
+        manual_review_required.append(issue_entry("formula_cells", counts["formula_cells"], "Formula cells are preserved, not recalculated. Business logic still needs spreadsheet review."))
+    if counts["formula_errors"] > 0:
+        manual_review_required.append(issue_entry("formula_errors", counts["formula_errors"], "Formula errors remain manual spreadsheet repair items."))
+    if counts["formula_cache_misses"] > 0:
+        manual_review_required.append(issue_entry("formula_cache_misses", counts["formula_cache_misses"], "Missing cached formula values require Excel recalculation and save, not workbook-native cleanup."))
+    if counts["hidden_sheets"] > 0 or counts["very_hidden_sheets"] > 0:
+        manual_review_required.append(issue_entry("hidden_sheets", counts["hidden_sheets"] + counts["very_hidden_sheets"], "Hidden sheet context may affect workbook meaning and should be reviewed manually."))
+
+    if counts["header_bands"] > 0 or counts["metadata_rows"] > 0:
+        workbook_native_risks.append(issue_entry("heuristic_table_detection", counts["header_bands"] + counts["metadata_rows"], "Header-band and metadata-row detection is heuristic, so the workbook table start should be confirmed by a human."))
+    if counts["notes_rows"] > 0 or counts["structural_rows"] > 0:
+        workbook_native_risks.append(issue_entry("report_rows", counts["notes_rows"] + counts["structural_rows"], "Report-style notes or subtotal rows suggest this workbook may behave better in tabular rescue mode."))
+    if counts["formula_cells"] > 0:
+        workbook_native_risks.append(issue_entry("formula_logic", counts["formula_cells"], "Workbook-native cleanup preserves formulas but does not validate workbook logic."))
+
+    return {
+        "safe_auto_fix_candidates": safe_auto_fix_candidates,
+        "remaining_risks": remaining_risks,
+        "manual_review_required": manual_review_required,
+        "workbook_native_risks": workbook_native_risks,
+    }
+
+
 def build_report(file_path: Path) -> dict:
     if is_encrypted_ooxml(file_path):
         raise ValueError("Password-protected / encrypted OOXML workbooks are not supported")
+    workbook_values = None
+    workbook_formulas = None
     try:
         workbook_values = load_workbook(file_path, data_only=True, keep_vba=file_path.suffix.lower() == ".xlsm")
         workbook_formulas = load_workbook(file_path, data_only=False, keep_vba=file_path.suffix.lower() == ".xlsm")
     except Exception as exc:
         raise ValueError(f"Could not read workbook: {exc}") from exc
 
-    sheets_info = {
-        "all": [sheet.title for sheet in workbook_values.worksheets],
-        "count": len(workbook_values.worksheets),
-        "empty": [],
-        "hidden": [],
-        "very_hidden": [],
-    }
-    merged_cells = {}
-    formula_cells = {}
-    formula_errors = {}
-    formula_cache_misses = {}
-    mixed_types = {}
-    empty_rows = {}
-    empty_columns = {}
-    duplicate_headers_report = {}
-    whitespace_headers_report = {}
-    structural_rows_report = {}
-    notes_rows_report = {}
-    date_formats = {}
-    single_value_columns = {}
-    high_null_columns = {}
-    header_bands = {}
-    metadata_rows = {}
-    empty_edge_columns = {}
-    sheet_summaries = {}
+    try:
+        sheets_info = {
+            "all": [sheet.title for sheet in workbook_values.worksheets],
+            "count": len(workbook_values.worksheets),
+            "empty": [],
+            "hidden": [],
+            "very_hidden": [],
+        }
+        merged_cells = {}
+        formula_cells = {}
+        formula_errors = {}
+        formula_cache_misses = {}
+        mixed_types = {}
+        empty_rows = {}
+        empty_columns = {}
+        duplicate_headers_report = {}
+        whitespace_headers_report = {}
+        structural_rows_report = {}
+        notes_rows_report = {}
+        date_formats = {}
+        single_value_columns = {}
+        high_null_columns = {}
+        header_bands = {}
+        metadata_rows = {}
+        empty_edge_columns = {}
+        sheet_summaries = {}
 
-    for values_sheet in workbook_values.worksheets:
-        sheet_name = values_sheet.title
-        formula_sheet = workbook_formulas[sheet_name]
+        for values_sheet in workbook_values.worksheets:
+            sheet_name = values_sheet.title
+            formula_sheet = workbook_formulas[sheet_name]
 
-        sheet_empty = is_sheet_empty(values_sheet)
-        if sheet_empty:
-            sheets_info["empty"].append(sheet_name)
+            sheet_empty = is_sheet_empty(values_sheet)
+            if sheet_empty:
+                sheets_info["empty"].append(sheet_name)
 
-        if values_sheet.sheet_state == "veryHidden":
-            sheets_info["very_hidden"].append({"name": sheet_name, "state": values_sheet.sheet_state})
-        elif values_sheet.sheet_state != "visible":
-            sheets_info["hidden"].append({"name": sheet_name, "state": values_sheet.sheet_state})
+            if values_sheet.sheet_state == "veryHidden":
+                sheets_info["very_hidden"].append({"name": sheet_name, "state": values_sheet.sheet_state})
+            elif values_sheet.sheet_state != "visible":
+                sheets_info["hidden"].append({"name": sheet_name, "state": values_sheet.sheet_state})
 
-        if sheet_name in INTERNAL_SHEETS:
-            continue
+            if sheet_name in INTERNAL_SHEETS:
+                continue
 
-        plan = detect_header_band(values_sheet)
-        data_start_row = min(values_sheet.max_row + 1, plan["header_row"] + 1)
-        if len(plan["header_band_rows"]) > 1:
-            header_bands[sheet_name] = {"rows": plan["header_band_rows"], "header_row": plan["header_row"]}
-        if plan["metadata_rows"]:
-            metadata_rows[sheet_name] = plan["metadata_rows"]
+            plan = detect_header_band(values_sheet)
+            data_start_row = min(values_sheet.max_row + 1, plan["header_row"] + 1)
+            if len(plan["header_band_rows"]) > 1:
+                header_bands[sheet_name] = {"rows": plan["header_band_rows"], "header_row": plan["header_row"]}
+            if plan["metadata_rows"]:
+                metadata_rows[sheet_name] = plan["metadata_rows"]
 
-        merged = [str(rng) for rng in formula_sheet.merged_cells.ranges]
-        if merged:
-            merged_cells[sheet_name] = merged
+            merged = [str(rng) for rng in formula_sheet.merged_cells.ranges]
+            if merged:
+                merged_cells[sheet_name] = merged
 
-        formulas = scan_formula_cells(formula_sheet)
-        if formulas:
-            formula_cells[sheet_name] = formulas
+            formulas = scan_formula_cells(formula_sheet)
+            if formulas:
+                formula_cells[sheet_name] = formulas
 
-        errors = scan_formula_errors(values_sheet)
-        if errors:
-            formula_errors[sheet_name] = errors
+            errors = scan_formula_errors(values_sheet)
+            if errors:
+                formula_errors[sheet_name] = errors
 
-        cache_misses = scan_formula_cache_misses(formula_sheet, values_sheet)
-        if cache_misses:
-            formula_cache_misses[sheet_name] = cache_misses
+            cache_misses = scan_formula_cache_misses(formula_sheet, values_sheet)
+            if cache_misses:
+                formula_cache_misses[sheet_name] = cache_misses
 
-        if sheet_empty:
-            sheet_summaries[sheet_name] = {"risk": "empty", "issues": ["empty_sheet"]}
-            continue
+            if sheet_empty:
+                sheet_summaries[sheet_name] = {"risk": "empty", "issues": ["empty_sheet"]}
+                continue
 
-        headers = headers_for_sheet(values_sheet, header_row=plan["header_row"])
-        whitespace_headers = header_whitespace(headers)
-        if whitespace_headers:
-            whitespace_headers_report[sheet_name] = whitespace_headers
-        duplicates = duplicate_headers(headers)
-        if duplicates:
-            duplicate_headers_report[sheet_name] = duplicates
-        blank_rows = scan_empty_rows(values_sheet, data_start_row)
-        if blank_rows:
-            empty_rows[sheet_name] = {"count": len(blank_rows), "rows": blank_rows}
-        structural_rows = scan_structural_rows(values_sheet, data_start_row)
-        if structural_rows:
-            structural_rows_report[sheet_name] = structural_rows
-        notes_rows = scan_notes_rows(values_sheet, data_start_row)
-        if notes_rows:
-            notes_rows_report[sheet_name] = notes_rows
-        edge_cols = scan_empty_edge_columns(values_sheet, plan["header_row"])
-        if edge_cols["leading"] or edge_cols["trailing"]:
-            empty_edge_columns[sheet_name] = edge_cols
-        mix, empties, singles, dates, high_nulls = scan_columns(values_sheet, headers, data_start_row)
-        if mix:
-            mixed_types[sheet_name] = mix
-        if empties:
-            empty_columns[sheet_name] = empties
-        if singles:
-            single_value_columns[sheet_name] = singles
-        if dates:
-            date_formats[sheet_name] = dates
-        if high_nulls:
-            high_null_columns[sheet_name] = high_nulls
+            headers = headers_for_sheet(values_sheet, header_row=plan["header_row"])
+            whitespace_headers = header_whitespace(headers)
+            if whitespace_headers:
+                whitespace_headers_report[sheet_name] = whitespace_headers
+            duplicates = duplicate_headers(headers)
+            if duplicates:
+                duplicate_headers_report[sheet_name] = duplicates
+            blank_rows = scan_empty_rows(values_sheet, data_start_row)
+            if blank_rows:
+                empty_rows[sheet_name] = {"count": len(blank_rows), "rows": blank_rows}
+            structural_rows = scan_structural_rows(values_sheet, data_start_row)
+            if structural_rows:
+                structural_rows_report[sheet_name] = structural_rows
+            notes_rows = scan_notes_rows(values_sheet, data_start_row)
+            if notes_rows:
+                notes_rows_report[sheet_name] = notes_rows
+            edge_cols = scan_empty_edge_columns(values_sheet, plan["header_row"])
+            if edge_cols["leading"] or edge_cols["trailing"]:
+                empty_edge_columns[sheet_name] = edge_cols
+            mix, empties, singles, dates, high_nulls = scan_columns(values_sheet, headers, data_start_row)
+            if mix:
+                mixed_types[sheet_name] = mix
+            if empties:
+                empty_columns[sheet_name] = empties
+            if singles:
+                single_value_columns[sheet_name] = singles
+            if dates:
+                date_formats[sheet_name] = dates
+            if high_nulls:
+                high_null_columns[sheet_name] = high_nulls
 
-        issue_flags = []
-        for name, payload in [
-            ("merged_ranges", merged),
-            ("formula_errors", errors),
-            ("formula_cache_misses", cache_misses),
-            ("mixed_types", mix),
-            ("duplicate_headers", duplicates),
-            ("header_band", header_bands.get(sheet_name)),
-            ("metadata_rows", metadata_rows.get(sheet_name)),
-            ("empty_rows", blank_rows),
-            ("notes_rows", notes_rows),
-            ("structural_rows", structural_rows),
-            ("empty_columns", empties),
-            ("empty_edge_columns", edge_cols if edge_cols["leading"] or edge_cols["trailing"] else None),
-        ]:
-            if payload:
-                issue_flags.append(name)
-        risk = "critical" if errors or duplicates or mix else "warning" if issue_flags else "healthy"
-        sheet_summaries[sheet_name] = {"risk": risk, "issues": issue_flags, "header_row": plan["header_row"], "data_start_row": data_start_row}
+            issue_flags = []
+            for name, payload in [
+                ("merged_ranges", merged),
+                ("formula_errors", errors),
+                ("formula_cache_misses", cache_misses),
+                ("mixed_types", mix),
+                ("duplicate_headers", duplicates),
+                ("header_band", header_bands.get(sheet_name)),
+                ("metadata_rows", metadata_rows.get(sheet_name)),
+                ("empty_rows", blank_rows),
+                ("notes_rows", notes_rows),
+                ("structural_rows", structural_rows),
+                ("empty_columns", empties),
+                ("empty_edge_columns", edge_cols if edge_cols["leading"] or edge_cols["trailing"] else None),
+            ]:
+                if payload:
+                    issue_flags.append(name)
+            risk = "critical" if errors or duplicates or mix else "warning" if issue_flags else "healthy"
+            sheet_summaries[sheet_name] = {
+                "risk": risk,
+                "issues": issue_flags,
+                "header_row": plan["header_row"],
+                "data_start_row": data_start_row,
+            }
 
-    contract = build_contract("excel_doctor.diagnose")
-    report = {
-        "contract": contract,
-        "schema_version": contract["version"],
-        "tool_version": TOOL_VERSION,
-        "file": file_path.name,
-        "file_type": file_path.suffix.lower(),
-        "sheets": sheets_info,
-        "merged_cells": merged_cells,
-        "formula_cells": formula_cells,
-        "formula_errors": formula_errors,
-        "formula_cache_misses": formula_cache_misses,
-        "mixed_types": mixed_types,
-        "empty_rows": empty_rows,
-        "empty_columns": empty_columns,
-        "duplicate_headers": duplicate_headers_report,
-        "whitespace_headers": whitespace_headers_report,
-        "structural_rows": structural_rows_report,
-        "notes_rows": notes_rows_report,
-        "date_formats": date_formats,
-        "single_value_columns": single_value_columns,
-        "high_null_columns": high_null_columns,
-        "header_bands": header_bands,
-        "metadata_rows": metadata_rows,
-        "empty_edge_columns": empty_edge_columns,
-        "sheet_summaries": sheet_summaries,
-        "workbook_mode": "workbook-native",
-        "limitations": [
-            ".xls legacy workbooks are not supported by excel-doctor",
-            "Password-protected / encrypted workbooks are rejected rather than repaired",
-            "Formula cache misses can be detected, but cached results cannot be reconstructed safely",
-        ],
-    }
-    report["summary"] = build_summary(report)
-    report["issue_counts"] = count_issue_events(report)
-    report["manual_review_warnings"] = build_manual_review_warnings(report)
-    report["workbook_summary"] = {
-        "sheets_total": sheets_info["count"],
-        "data_sheets_evaluated": len(sheet_summaries),
-        "hidden_sheet_count": len(sheets_info["hidden"]),
-        "very_hidden_sheet_count": len(sheets_info["very_hidden"]),
-        "mode": "workbook-native",
-    }
-    report["run_summary"] = build_run_summary(
-        tool="excel-doctor",
-        script="diagnose.py",
-        input_path=file_path,
-        metrics={
+        contract = build_contract("excel_doctor.diagnose")
+        report = {
+            "contract": contract,
+            "schema_version": contract["version"],
+            "tool_version": TOOL_VERSION,
+            "file": file_path.name,
+            "file_type": file_path.suffix.lower(),
+            "sheets": sheets_info,
+            "merged_cells": merged_cells,
+            "formula_cells": formula_cells,
+            "formula_errors": formula_errors,
+            "formula_cache_misses": formula_cache_misses,
+            "mixed_types": mixed_types,
+            "empty_rows": empty_rows,
+            "empty_columns": empty_columns,
+            "duplicate_headers": duplicate_headers_report,
+            "whitespace_headers": whitespace_headers_report,
+            "structural_rows": structural_rows_report,
+            "notes_rows": notes_rows_report,
+            "date_formats": date_formats,
+            "single_value_columns": single_value_columns,
+            "high_null_columns": high_null_columns,
+            "header_bands": header_bands,
+            "metadata_rows": metadata_rows,
+            "empty_edge_columns": empty_edge_columns,
+            "sheet_summaries": sheet_summaries,
+            "workbook_mode": "workbook-native",
+            "limitations": [
+                ".xls legacy workbooks are not supported by excel-doctor",
+                "Password-protected / encrypted workbooks are rejected rather than repaired",
+                "Formula cache misses can be detected, but cached results cannot be reconstructed safely",
+            ],
+        }
+        report["summary"] = build_summary(report)
+        report["issue_counts"] = count_issue_events(report)
+        report["manual_review_warnings"] = build_manual_review_warnings(report)
+        report["workbook_triage"] = build_workbook_triage(report)
+        report["residual_risk"] = build_residual_risk(report)
+        report["workbook_summary"] = {
             "sheets_total": sheets_info["count"],
-            "issues_found": report["summary"]["issue_count"],
-            "issue_categories_triggered": report["summary"]["issue_categories_triggered"],
-            "manual_review_warnings": len(report["manual_review_warnings"]),
-            "verdict": report["summary"]["verdict"],
+            "data_sheets_evaluated": len(sheet_summaries),
+            "hidden_sheet_count": len(sheets_info["hidden"]),
+            "very_hidden_sheet_count": len(sheets_info["very_hidden"]),
             "mode": "workbook-native",
-        },
-    )
-    return report
+        }
+        report["run_summary"] = build_run_summary(
+            tool="excel-doctor",
+            script="diagnose.py",
+            input_path=file_path,
+            metrics={
+                "sheets_total": sheets_info["count"],
+                "issues_found": report["summary"]["issue_count"],
+                "issue_categories_triggered": report["summary"]["issue_categories_triggered"],
+                "manual_review_warnings": len(report["manual_review_warnings"]),
+                "triage": report["workbook_triage"]["classification"],
+                "verdict": report["summary"]["verdict"],
+                "mode": "workbook-native",
+            },
+        )
+        return report
+    finally:
+        if workbook_values is not None:
+            workbook_values.close()
+        if workbook_formulas is not None:
+            workbook_formulas.close()
 
 
 def main():

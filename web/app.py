@@ -375,7 +375,7 @@ def create_readable_export(
     return loaded
 
 
-def preview_payload(loaded: dict, workbook_semantics: Optional[dict] = None) -> dict:
+def preview_payload(loaded: dict, workbook_semantics: Optional[dict] = None, excel_report: Optional[dict] = None) -> dict:
     df = loaded["dataframe"]
     head = df.head(50).fillna("").astype(str)
     return {
@@ -387,6 +387,7 @@ def preview_payload(loaded: dict, workbook_semantics: Optional[dict] = None) -> 
         "warnings": loaded.get("warnings") or [],
         "head_records": head.to_dict(orient="records"),
         "workbook_semantics": workbook_semantics,
+        "excel_report": excel_report,
     }
 
 
@@ -482,6 +483,33 @@ def inspect_remote_workbook_semantics(
             header_row_override=header_row_override,
             role_overrides=role_overrides,
         )
+
+
+def excel_diagnose_report(path: Path) -> tuple[Optional[dict], Optional[str]]:
+    completed = run_script(EXCEL_DIAGNOSE, str(path))
+    if completed.returncode != 0:
+        return None, completed.stdout.strip() or completed.stderr.strip() or "Excel diagnose failed."
+    try:
+        return json.loads(completed.stdout), None
+    except json.JSONDecodeError as exc:
+        return None, f"Excel diagnose returned invalid JSON: {exc}"
+
+
+def inspect_local_excel_report(file_bytes: bytes, suffix: str) -> tuple[Optional[dict], Optional[str]]:
+    with tempfile.TemporaryDirectory(prefix="sheet_doctor_local_excel_report_") as tmpdir:
+        tmp_path = Path(tmpdir) / f"excel_report{suffix}"
+        tmp_path.write_bytes(file_bytes)
+        return excel_diagnose_report(tmp_path)
+
+
+def inspect_remote_excel_report(url: str) -> tuple[Optional[dict], Optional[str]]:
+    with tempfile.TemporaryDirectory(prefix="sheet_doctor_remote_excel_report_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        try:
+            remote = fetch_remote_source(url, tmp_path)
+        except Exception as exc:
+            return None, str(exc)
+        return excel_diagnose_report(remote["path"])
 
 
 def source_label(item: dict) -> str:
@@ -642,6 +670,7 @@ def process_one_item(item: dict, folder: Path) -> dict:
     }
 
     workbook_semantics = None
+    excel_preview_report = None
     if ext in WORKBOOK_EXTS:
         workbook_semantics, semantic_error = workbook_semantic_info(
             source_path,
@@ -654,13 +683,17 @@ def process_one_item(item: dict, folder: Path) -> dict:
             result["messages"].append(f"Workbook interpretation preview failed: {semantic_error}")
         else:
             result["workbook_semantics"] = workbook_semantics
+        if ext in MODERN_EXCEL_EXTS:
+            excel_preview_report, excel_report_error = excel_diagnose_report(source_path)
+            if excel_report_error:
+                result["messages"].append(f"Workbook triage preview failed: {excel_report_error}")
 
     preview_loaded = load_preview(
         source_path,
         sheet_name=item.get("sheet_name") if not item.get("consolidate") else None,
         consolidate=item.get("consolidate"),
     )
-    result["preview"] = preview_payload(preview_loaded, workbook_semantics=workbook_semantics)
+    result["preview"] = preview_payload(preview_loaded, workbook_semantics=workbook_semantics, excel_report=excel_preview_report)
     result["messages"].extend(preview_loaded.get("warnings") or [])
 
     if item["intent"] == "Diagnose Only":
@@ -826,9 +859,11 @@ def render_excel_report(report: dict) -> None:
         f"**Issues found:** `{summary.get('issue_count', 0)}`  \n"
         f"**Categories triggered:** `{summary.get('issue_categories_triggered', 0)}`"
     )
+    render_workbook_triage(report)
     warnings = report.get("manual_review_warnings") or []
     if warnings:
         st.warning("Workbook-native manual review:\n- " + "\n- ".join(warnings))
+    render_residual_risk(report.get("residual_risk"))
     st.json(report)
 
 
@@ -846,6 +881,9 @@ def render_preview(preview: dict) -> None:
         st.info("No table rows were loaded for preview.")
     if preview.get("workbook_semantics"):
         render_workbook_semantics(preview["workbook_semantics"])
+    if preview.get("excel_report"):
+        render_workbook_triage(preview["excel_report"])
+        render_residual_risk(preview["excel_report"].get("residual_risk"))
 
 
 def render_workbook_semantics(inspection: dict) -> None:
@@ -899,6 +937,48 @@ def render_mode_details(mode_details: Optional[dict]) -> None:
     )
 
 
+def workbook_triage_recommendation(triage: Optional[dict]) -> str:
+    classification = (triage or {}).get("classification")
+    if classification == "workbook_native_safe_cleanup":
+        return "excel-doctor workbook-native cleanup"
+    if classification == "tabular_rescue_recommended":
+        return "csv-doctor tabular rescue"
+    if classification == "manual_spreadsheet_review_required":
+        return "manual review first"
+    return "review the workbook manually"
+
+
+def render_workbook_triage(report: dict) -> None:
+    triage = report.get("workbook_triage") or {}
+    if not triage:
+        return
+    recommendation = workbook_triage_recommendation(triage)
+    st.markdown(
+        f"**Workbook triage:** `{triage.get('classification', '-')}`  \n"
+        f"**Confidence:** `{triage.get('confidence', '-')}`  \n"
+        f"**Recommended path:** {recommendation}  \n"
+        f"**Why:** {triage.get('reason', '-')}  \n"
+        f"**Recommended next action:** {triage.get('recommended_next_action', '-')}"
+    )
+
+
+def render_residual_risk(residual_risk: Optional[dict]) -> None:
+    if not residual_risk:
+        return
+    labels = {
+        "safe_auto_fix_candidates": "Safe auto-fix candidates",
+        "remaining_risks": "Remaining risks",
+        "manual_review_required": "Manual review required",
+        "workbook_native_risks": "Workbook-native risks",
+    }
+    for key, label in labels.items():
+        entries = residual_risk.get(key) or []
+        if not entries:
+            continue
+        st.caption(label)
+        st.dataframe(pd.DataFrame(entries), width="stretch", hide_index=True)
+
+
 def render_results() -> None:
     results = st.session_state.get("results") or []
     if not results:
@@ -935,9 +1015,25 @@ def render_results() -> None:
                 if workbook_plan:
                     st.caption("Structured healing summary captured")
                     st.json(workbook_plan)
+                triage = item["heal_summary"].get("workbook_triage")
+                if triage:
+                    render_workbook_triage({"workbook_triage": triage})
                 heal_warnings = item["heal_summary"].get("warnings") or []
                 if heal_warnings:
                     st.warning("Workbook-native healing warnings:\n- " + "\n- ".join(heal_warnings))
+                residual_risk = item["heal_summary"].get("residual_risk")
+                if residual_risk:
+                    render_residual_risk(residual_risk)
+                before_after = item["heal_summary"].get("before_after_issue_summary") or {}
+                if before_after.get("issue_counts"):
+                    comparison_rows = [
+                        {"issue": issue, "before": values["before"], "after": values["after"]}
+                        for issue, values in before_after["issue_counts"].items()
+                        if values["before"] > 0 or values["after"] > 0
+                    ]
+                    if comparison_rows:
+                        st.caption("Before / after workbook issues")
+                        st.dataframe(pd.DataFrame(comparison_rows), width="stretch", hide_index=True)
             if item.get("download_bytes") and item.get("download_name"):
                 st.download_button(
                     "Download fixed file",
@@ -1258,6 +1354,16 @@ def render_file_configuration(sources: list[dict], disabled: bool) -> None:
                         continue
 
                 render_workbook_semantics(inspection)
+                if ext in MODERN_EXCEL_EXTS:
+                    if item["source_kind"] == "url":
+                        excel_report, excel_error = inspect_remote_excel_report(item["source_label"])
+                    else:
+                        excel_report, excel_error = inspect_local_excel_report(item["bytes"], ext)
+                    if excel_error:
+                        st.info(f"Workbook triage unavailable: {excel_error}")
+                    elif excel_report:
+                        render_workbook_triage(excel_report)
+                        render_residual_risk(excel_report.get("residual_risk"))
                 if st.session_state.get(tabular_key, ext in LEGACY_PREVIEW_EXTS):
                     confirm_key = f"confirmplan_{source_id}"
                     signature_key = f"plansignature_{source_id}"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -34,6 +35,7 @@ SMART_QUOTES = {
 }
 INTERNAL_SHEETS = {"Change Log"}
 HEADER_HINT_RE = re.compile(r"[A-Za-z]")
+DIAGNOSE_PATH = SCRIPT_DIR / "diagnose.py"
 
 
 @dataclass
@@ -370,10 +372,51 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def load_diagnose_module():
+    module_name = "sheet_doctor_excel_diagnose_runtime"
+    module = sys.modules.get(module_name)
+    if module is not None:
+        return module
+    spec = importlib.util.spec_from_file_location(module_name, DIAGNOSE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def build_before_after_summary(before_report: dict, after_report: dict) -> dict:
+    before_counts = before_report["issue_counts"]
+    after_counts = after_report["issue_counts"]
+    keys = sorted(set(before_counts) | set(after_counts))
+    comparison = {
+        key: {"before": int(before_counts.get(key, 0)), "after": int(after_counts.get(key, 0))}
+        for key in keys
+    }
+    fixed = [
+        {"issue": key, "before": values["before"], "after": values["after"]}
+        for key, values in comparison.items()
+        if values["before"] > values["after"]
+    ]
+    remaining = [
+        {"issue": key, "count": values["after"]}
+        for key, values in comparison.items()
+        if values["after"] > 0
+    ]
+    return {
+        "issue_counts": comparison,
+        "fixed_by_heal": fixed,
+        "remaining_after_heal": remaining,
+        "before_triage": before_report.get("workbook_triage"),
+        "after_triage": after_report.get("workbook_triage"),
+    }
+
+
 def execute_healing(input_path: Path, output_path: Path) -> tuple[list[Change], Counter]:
     if is_encrypted_ooxml(input_path):
         raise ValueError("Password-protected / encrypted OOXML workbooks are not supported")
     keep_vba = input_path.suffix.lower() == ".xlsm"
+    workbook = None
     try:
         workbook = load_workbook(input_path, keep_vba=keep_vba)
     except Exception as exc:
@@ -398,16 +441,23 @@ def execute_healing(input_path: Path, output_path: Path) -> tuple[list[Change], 
     finally:
         if temp_path.exists():
             temp_path.unlink()
+        if workbook is not None:
+            workbook.close()
     return changes, stats
 
 
 def build_structured_summary(*, input_path: Path, output_path: Path, changes: list[Change], stats: Counter) -> dict:
+    diagnose_module = load_diagnose_module()
+    before_report = diagnose_module.build_report(input_path)
+    after_report = diagnose_module.build_report(output_path)
+    before_after = build_before_after_summary(before_report, after_report)
     contract = build_contract("excel_doctor.heal_summary")
     warnings = []
     if stats["formula_cells_preserved"] > 0:
         warnings.append("Formula cells were preserved unchanged. excel-doctor does not recalculate formulas.")
     if input_path.suffix.lower() == ".xlsm":
         warnings.append(".xlsm macro preservation only holds while the output remains .xlsm.")
+    warnings.extend(after_report.get("manual_review_warnings") or [])
     return {
         "contract": contract,
         "schema_version": contract["version"],
@@ -418,6 +468,9 @@ def build_structured_summary(*, input_path: Path, output_path: Path, changes: li
         "stats": dict(stats),
         "changes_logged": len(changes),
         "warnings": warnings,
+        "workbook_triage": after_report.get("workbook_triage"),
+        "residual_risk": after_report.get("residual_risk"),
+        "before_after_issue_summary": before_after,
         "assumptions": [
             "Workbook-native healing preserves workbook sheets instead of flattening them into a CSV-style table",
             "Ambiguous DD/MM vs MM/DD dates prefer day-first when both parse",
@@ -441,6 +494,7 @@ def build_structured_summary(*, input_path: Path, output_path: Path, changes: li
                 "dates_normalised": stats["dates_normalised"],
                 "empty_rows_removed": stats["empty_rows_removed"],
                 "edge_columns_trimmed": stats["edge_columns_trimmed"],
+                "triage_after": after_report["workbook_triage"]["classification"],
                 "mode": "workbook-native",
             },
         ),
@@ -466,10 +520,11 @@ def main():
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
+    summary = build_structured_summary(input_path=input_path, output_path=output_path, changes=changes, stats=stats)
     if args.json_summary:
         summary_path = Path(args.json_summary)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
-        summary_path.write_text(json.dumps(build_structured_summary(input_path=input_path, output_path=output_path, changes=changes, stats=stats), indent=2, ensure_ascii=False), encoding="utf-8")
+        summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     print()
     print("═" * 62)
     print("  Excel Doctor  ·  Heal Report")
@@ -492,11 +547,25 @@ def main():
     print(f"    · Empty rows removed          : {stats['empty_rows_removed']}")
     print(f"    · Edge columns trimmed        : {stats['edge_columns_trimmed']}")
     print("─" * 62)
-    if stats["formula_cells_preserved"] > 0:
+    triage = summary["workbook_triage"]
+    print(f"  Triage       : {triage['classification']}")
+    print(f"  Why          : {triage['reason']}")
+    print("─" * 62)
+    before_after = summary["before_after_issue_summary"]["issue_counts"]
+    for issue in ["merged_ranges", "duplicate_headers", "empty_rows", "formula_errors", "formula_cache_misses"]:
+        values = before_after.get(issue)
+        if values is not None:
+            print(f"  {issue:18}: {values['before']} -> {values['after']}")
+    print("─" * 62)
+    if summary["warnings"]:
         print("  WARNINGS:")
-        print("    · Formula cells were preserved unchanged; excel-doctor does not recalculate formulas")
-        if input_path.suffix.lower() == ".xlsm":
-            print("    · .xlsm macro preservation only holds while the output remains .xlsm")
+        for warning in summary["warnings"]:
+            print(f"    · {warning}")
+        print("─" * 62)
+    if summary["residual_risk"]["manual_review_required"]:
+        print("  MANUAL REVIEW:")
+        for entry in summary["residual_risk"]["manual_review_required"]:
+            print(f"    · {entry['message']}")
         print("─" * 62)
     print("  ASSUMPTIONS:")
     print("    · Workbook-native healing preserves workbook sheets instead of flattening them into a CSV-style table")

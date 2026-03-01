@@ -24,6 +24,45 @@ Real-world spreadsheets are disasters. Wrong encodings, misaligned columns, five
 
 More skills coming: `merge-doctor`, `type-doctor`, `encoding-fixer`.
 
+## Who This Is For
+
+sheet-doctor is for people dealing with messy tabular exports and broken spreadsheet structure.
+
+Best fit:
+- Analysts cleaning CSV exports from ERP, CRM, HR, finance, and survey tools
+- Consultants working through client spreadsheet cleanup
+- Ops teams that need a first-pass cleanup before manual review
+- People who want local-first processing for sensitive files
+- Teams that value:
+  - a readable rescue output
+  - explicit quarantine
+  - a change log of what was touched
+  - honest manual-review boundaries
+
+Best current fit by mode:
+- `csv-doctor` — ugly CSVs and table-like spreadsheet data
+- `excel-doctor` — workbook-native cleanup for `.xlsx` / `.xlsm` when preserving workbook structure matters
+
+## Who This Is Not For
+
+sheet-doctor is not a general “fix any spreadsheet” system.
+
+Not a good fit if you need:
+- one-click repair of arbitrary Excel models
+- fuzzy entity resolution across vendors, customers, or employees
+- multi-file merge and reconciliation
+- business-rule validation
+- password-protected workbook repair
+- streaming-scale processing for very large files
+- a fully non-technical no-setup workflow
+
+Be especially careful with:
+- formula-heavy workbooks
+- hidden-sheet-dependent workbooks
+- complex reporting workbooks with spreadsheet logic that must be preserved and recalculated
+
+In those cases, sheet-doctor can help with triage and safe cleanup, but it does not replace manual spreadsheet review.
+
 ## csv-doctor Status
 
 - ✅ `loader.py` — universal file format handler
@@ -399,7 +438,17 @@ python skills/excel-doctor/scripts/diagnose.py /path/to/workbook.xlsm
 - Detects hidden/very-hidden sheets, merged ranges, header bands, metadata/preamble rows, formula cells/errors/cache misses, duplicate/whitespace headers, empty rows/columns, empty edge columns, and mixed-type columns
 - Heals safe structural/text/date issues while preserving workbook sheets and formulas
 - Does not recalculate formulas, recover missing cache values, or repair encrypted/corrupted workbooks beyond failing cleanly
+- Emits workbook triage explicitly:
+  - `workbook_native_safe_cleanup`
+  - `tabular_rescue_recommended`
+  - `manual_spreadsheet_review_required`
+- Adds residual-risk reporting so the workbook path says what was fixed, what remains, and what still requires manual spreadsheet review
 - Emits workbook-native manual-review warnings when formulas, hidden sheets, or heuristic header-band detection mean spreadsheet context still matters after cleanup
+
+Workbook triage, plainly:
+- `workbook_native_safe_cleanup` — workbook-native cleanup is the right first step because the workbook mostly has safe structural/text issues
+- `tabular_rescue_recommended` — the workbook looks more like an exported report or messy table, so `csv-doctor` tabular rescue is often clearer than preserving workbook layout
+- `manual_spreadsheet_review_required` — spreadsheet logic or hidden workbook context matters enough that cleanup alone is not a safe interpretation
 
 ---
 

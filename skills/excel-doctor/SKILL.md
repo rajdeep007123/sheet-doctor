@@ -68,6 +68,11 @@ It reports:
 - likely notes / metadata rows
 - per-sheet risk summaries
 - workbook-level summary
+- workbook triage classification (`workbook_native_safe_cleanup`, `tabular_rescue_recommended`, `manual_spreadsheet_review_required`)
+- plain-English triage reason
+- triage confidence
+- recommended next action
+- residual-risk sections describing what is safe to auto-fix, what remains risky, and what still needs manual spreadsheet review
 - manual-review warnings when formulas, hidden sheets, or heuristic header detection mean cleanup is not the same as business-safe interpretation
 
 If something cannot be known safely, it should be called out as a limitation rather than guessed.
@@ -99,6 +104,11 @@ Important limits:
 - `.xlsm` macros are only preserved if the output stays `.xlsm`
 - this is not a spreadsheet reconstruction engine
 
+`heal.py` summaries now also include:
+- workbook triage after healing
+- residual-risk reporting after healing
+- before/after issue counts for key workbook problems such as merged ranges, duplicate headers, empty rows, formula errors, and formula cache misses
+
 ---
 
 ## When to use `excel-doctor` vs `csv-doctor`
@@ -108,12 +118,19 @@ Use `excel-doctor` when:
 - hidden sheets matter
 - merged ranges / header bands / workbook layout matter
 - the user wants to preserve workbook structure
+- diagnosis reports `workbook_native_safe_cleanup` as the recommended path
 
 Use `csv-doctor` tabular rescue when:
 - the user wants `Clean Data / Quarantine / Change Log`
 - the workbook is really just a messy table
 - flattening the workbook into rows/columns is acceptable
 - the input is `.xls` or `.ods`
+- diagnosis reports `tabular_rescue_recommended`
+
+Require manual spreadsheet review first when:
+- diagnosis reports `manual_spreadsheet_review_required`
+- formula errors or cache misses matter to workbook meaning
+- hidden/very-hidden sheets may contain required business context
 
 ---
 
@@ -143,6 +160,8 @@ python skills/excel-doctor/scripts/heal.py workbook.xlsx healed.xlsx --json-summ
 - workbook file info
 - sheet inventory
 - workbook-native issue sections
+- `workbook_triage`
+- `residual_risk`
 - `sheet_summaries`
 - `workbook_summary`
 - `summary`
@@ -158,6 +177,9 @@ python skills/excel-doctor/scripts/heal.py workbook.xlsx healed.xlsx --json-summ
   - stats
   - changes logged
   - assumptions
+  - `workbook_triage`
+  - `residual_risk`
+  - `before_after_issue_summary`
   - run summary
 
 ---

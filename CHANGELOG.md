@@ -11,6 +11,8 @@ All notable changes to sheet-doctor are documented here.
   - Reports hidden and very-hidden sheets separately
   - Detects header bands, metadata/preamble rows, notes-like rows, structural subtotal rows, and empty edge columns
   - Reports formula cells alongside formula errors and cache misses
+  - Emits workbook triage (`workbook_native_safe_cleanup`, `tabular_rescue_recommended`, `manual_spreadsheet_review_required`) with a plain-English reason, confidence, and recommended next action
+  - Emits machine-readable residual-risk sections describing what is safe to auto-fix, what remains risky, and what still needs manual spreadsheet review
   - Emits explicit manual-review warnings when formula logic, hidden sheets, or heuristic header detection still require spreadsheet judgment
   - Emits sheet-level risk summaries plus a workbook-level summary
   - Rejects `.xls` explicitly and rejects encrypted OOXML workbooks with a stable user-facing error
@@ -18,7 +20,7 @@ All notable changes to sheet-doctor are documented here.
   - Writes atomically through a temp workbook path before replacing the target output
   - Preserves `.xlsm` output suffixes by default so macros are not silently stripped by the default path
   - Flattens safe stacked headers, removes metadata rows, trims empty edge columns, unmerges ranges, preserves formulas, cleans text/date cells, and appends a `Change Log` sheet
-  - Structured summaries now report `workbook-native` mode explicitly and include preserved-formula counts
+  - Structured summaries now report `workbook-native` mode explicitly, include preserved-formula counts, include workbook triage and residual-risk output, and show before/after issue counts for key workbook risks
 - **Excel fixtures / tests** — added committed workbook-native regression coverage:
   - `tests/fixtures/excel/hidden_layers.xlsx`
   - `tests/fixtures/excel/stacked_headers.xlsx`
@@ -35,6 +37,7 @@ All notable changes to sheet-doctor are documented here.
   - Explains why that mode was chosen and the tradeoff before the run starts
   - Workbook-native runs now keep `.xlsm` output names and capture Excel-heal JSON summaries
   - Workbook-native reports and heal summaries now surface formula/manual-review warnings directly in the results view
+  - Workbook triage is now shown prominently for workbook files, including the recommended path (`excel-doctor`, `csv-doctor` tabular rescue, or manual review first) and the tradeoff for each path
 - **`csv-doctor` / `heal.py`** — split into smaller modules under `skills/csv-doctor/scripts/heal_modules/`:
   - Shared constants/dataclasses now live in `shared.py`
   - Row/header preprocessing now lives in `preprocessing.py`
