@@ -109,6 +109,7 @@
   "healing_projection": {
     "action_counts": "<PLATFORM_SPECIFIC>",
     "clean_rows": 42,
+    "estimated": false,
     "mode": "schema-specific",
     "modified_rows": 40,
     "needs_review_rows": 11,
@@ -119,7 +120,8 @@
       "Row is all whitespace": 1,
       "Structural row (TOTAL/subtotal/header repeat)": 1
     },
-    "quarantine_rows": 5
+    "quarantine_rows": 5,
+    "reason": null
   },
   "health_score": {
     "deductions": {

@@ -219,7 +219,11 @@ Fill this after the files are local:
 | `smoke` | `Employee Sample Data.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `HEALTHY (1 issue)` | `HEALTHY (1 issue)` | n/a | n/a | 15 | No | SpreadsheetGuru; safe-cleanup triage |
 | `smoke` | `Financials Sample Data.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `HEALTHY (1 issue)` | `HEALTHY (1 issue)` | n/a | n/a | 0 | No | SpreadsheetGuru; already mostly clean |
 | `smoke` | `learningcontainer-employee.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `CRITICAL (2 issues)` | `CRITICAL (2 issues)` | n/a | n/a | 0 | No | Learning Container; manual review required |
-| `smoke` | `Sample-sales-data-excel.xls` | `csv-doctor` | XLS | 9995 | n/a | `NEEDS ATTENTION (3 issues)` | n/a | 9994 | 0 | 399 | Partial | Learning Container; report JSON timed out after 20s |
+| `smoke` | `Sample-sales-data-excel.xls` | `csv-doctor` | XLS | 9995 | n/a | `NEEDS ATTENTION (3 issues)` | n/a | 9994 | 0 | 399 | Partial | Learning Container; diagnose/heal work through tabular fallback, but `report` now fails fast by design for legacy `.xls` |
+| `smoke` | `exceldemy-sample-employee-data.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `CRITICAL (126 issues)` | `NEEDS ATTENTION (139 issues)` | n/a | n/a | 25 | No | ExcelDemy; manual-review triage, cleanup helped formatting but did not make the workbook trustworthy |
+| `real mess` | `contextures-SampleData/SampleData.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `NEEDS ATTENTION (16 issues)` | `NEEDS ATTENTION (11 issues)` | n/a | n/a | 13 | No | Contextures office-supply workbook; triage `tabular_rescue_recommended`, workbook-native heal helped but preserving layout is still second-best |
+| `stress` | `customers-500000/customers-500000.csv` | `csv-doctor` | CSV | 500001 | n/a | `NEEDS ATTENTION (2 issues)` | n/a | n/a | n/a | n/a | Partial | Datablist; `diagnose` succeeds in degraded mode, but `report` now fast-fails above 50 MB and heal was not run end-to-end in this pass |
+| `stress` | `customers-2000000/customers-2000000.csv` | `csv-doctor` | CSV | n/a | n/a | parse rejected | n/a | n/a | n/a | n/a | No | Datablist; clean rejection in 0.73s because file is 333.2 MB and exceeds the 250 MB hard limit |
 
 ## Notes on interpretation
 

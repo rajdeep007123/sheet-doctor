@@ -106,6 +106,137 @@ class ReporterTests(unittest.TestCase):
         expected = (GOLDEN_DIR / "extreme_mess_report.json").read_text(encoding="utf-8")
         self.assertEqual(actual, expected)
 
+    def test_legacy_xls_report_skips_full_heal_projection(self):
+        original_build = self.reporter.build_diagnose_report
+        original_execute = self.reporter.execute_healing
+        original_build_actions = self.reporter.build_actions
+        column_report = {
+            "columns": {
+                "Amount": {
+                    "detected_type": "currency/amount",
+                    "null_percentage": 0.0,
+                    "suspected_issues": [],
+                }
+            },
+            "summary": {
+                "total_rows": 9994,
+                "total_columns": 1,
+                "issue_counts": {},
+            },
+        }
+        fake_report = {
+            "file": "Sample-sales-data-excel.xls",
+            "detected_format": "xls",
+            "detected_encoding": "WINDOWS-1252",
+            "encoding": {"detected": "WINDOWS-1252", "is_utf8": False, "suspicious_chars": []},
+            "column_count": {"expected": 1, "misaligned_rows": []},
+            "date_formats": {},
+            "empty_rows": {"count": 0, "rows": []},
+            "duplicate_headers": {"duplicate_columns": [], "repeated_header_rows": []},
+            "whitespace_headers": [],
+            "column_quality": {"empty_columns": [], "single_value_columns": []},
+            "column_semantics": column_report,
+            "row_accounting": {
+                "raw_rows_total": 9995,
+                "raw_data_rows_total": 9994,
+                "parsed_rows_total": 9994,
+                "malformed_rows_total": 0,
+                "malformed_rows": [],
+                "dropped_rows_total": 0,
+            },
+            "healing_mode_candidate": "semantic",
+            "degraded_mode": {"active": False, "reasons": []},
+            "issues": [],
+        }
+
+        def fail_execute(*args, **kwargs):
+            raise AssertionError("execute_healing should not run for legacy .xls report fast path")
+
+        def fake_actions(*args, **kwargs):
+            return ["stub action"]
+
+        self.reporter.build_diagnose_report = lambda *args, **kwargs: fake_report
+        self.reporter.execute_healing = fail_execute
+        self.reporter.build_actions = fake_actions
+        try:
+            report = self.reporter.build_report(Path("legacy.xls"))
+        finally:
+            self.reporter.build_diagnose_report = original_build
+            self.reporter.execute_healing = original_execute
+            self.reporter.build_actions = original_build_actions
+
+        self.assertTrue(report["healing_projection"]["estimated"])
+        self.assertEqual(report["healing_projection"]["mode"], "semantic")
+        self.assertEqual(report["healing_projection"]["clean_rows"], 9994)
+        self.assertEqual(report["recoverability_score"]["score"], report["raw_health_score"]["score"])
+        self.assertIn("legacy .xls input", report["healing_projection"]["reason"])
+
+    def test_degraded_report_skips_full_heal_projection(self):
+        original_build = self.reporter.build_diagnose_report
+        original_execute = self.reporter.execute_healing
+        original_build_actions = self.reporter.build_actions
+        column_report = {
+            "columns": {
+                "Customer Id": {
+                    "detected_type": "id/code",
+                    "null_percentage": 0.0,
+                    "suspected_issues": [],
+                }
+            },
+            "summary": {
+                "total_rows": 500000,
+                "total_columns": 1,
+                "issue_counts": {},
+            },
+        }
+        fake_report = {
+            "file": "customers-500000.csv",
+            "detected_format": "csv",
+            "detected_encoding": "UTF-8",
+            "encoding": {"detected": "UTF-8", "is_utf8": True, "suspicious_chars": []},
+            "column_count": {"expected": 1, "misaligned_rows": []},
+            "date_formats": {},
+            "empty_rows": {"count": 0, "rows": []},
+            "duplicate_headers": {"duplicate_columns": [], "repeated_header_rows": []},
+            "whitespace_headers": [],
+            "column_quality": {"empty_columns": [], "single_value_columns": []},
+            "column_semantics": column_report,
+            "row_accounting": {
+                "raw_rows_total": 500001,
+                "raw_data_rows_total": 500000,
+                "parsed_rows_total": 500000,
+                "malformed_rows_total": 0,
+                "malformed_rows": [],
+                "dropped_rows_total": 0,
+            },
+            "healing_mode_candidate": "semantic",
+            "degraded_mode": {
+                "active": True,
+                "reasons": ["High row count (500,000 rows) may cause slow or memory-heavy processing"],
+            },
+            "issues": [],
+        }
+
+        def fail_execute(*args, **kwargs):
+            raise AssertionError("execute_healing should not run when degraded mode is active")
+
+        def fake_actions(*args, **kwargs):
+            return ["stub action"]
+
+        self.reporter.build_diagnose_report = lambda *args, **kwargs: fake_report
+        self.reporter.execute_healing = fail_execute
+        self.reporter.build_actions = fake_actions
+        try:
+            report = self.reporter.build_report(Path("customers-500000.csv"))
+        finally:
+            self.reporter.build_diagnose_report = original_build
+            self.reporter.execute_healing = original_execute
+            self.reporter.build_actions = original_build_actions
+
+        self.assertTrue(report["healing_projection"]["estimated"])
+        self.assertEqual(report["healing_projection"]["clean_rows"], 500000)
+        self.assertIn("degraded mode is active", report["healing_projection"]["reason"])
+
     @staticmethod
     def normalise_text_report(text: str) -> str:
         text = re.sub(

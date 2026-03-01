@@ -7,6 +7,10 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Changed
+- **CLI reporting guardrails** — `sheet-doctor report` now fails fast instead of hanging on weak paths:
+  - legacy `.xls` inputs now return an explicit “use diagnose/heal or convert to .xlsx first” error
+  - large files above `50 MB` now return an explicit “report disabled, use diagnose or heal” error
+  - this prevents the old behavior where `.xls` and large tabular files could sit in slow scored-report generation
 - **Release-facing polish** — the repo now presents itself more like a maintained package:
   - Added README badges for CI, Python versions, license, and local-first positioning
   - Added a small support section linking to Buy Me a Coffee

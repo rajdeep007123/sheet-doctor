@@ -141,6 +141,31 @@ class SheetDoctorCliTests(unittest.TestCase):
         self.assertIn("source_reports", payload)
         self.assertEqual(proc.stderr.strip(), "")
 
+    def test_report_rejects_legacy_xls_fast(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xls_path = Path(tmpdir) / "legacy.xls"
+            xls_path.write_bytes(b"dummy")
+            proc = run_cli("report", str(xls_path), "--json")
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["report_mode"], "unsupported")
+            self.assertIn("legacy .xls", payload["error"])
+
+    def test_report_rejects_large_input_fast_when_threshold_hit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "large.csv"
+            csv_path.write_text("name,amount\nAlice,10\n", encoding="utf-8")
+            proc = run_cli(
+                "report",
+                str(csv_path),
+                "--json",
+                env={"SHEET_DOCTOR_REPORT_MAX_BYTES": "1"},
+            )
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["report_mode"], "unsupported")
+            self.assertIn("disabled for files larger than", payload["error"])
+
     def test_validate_success_and_failure(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             schema_path = Path(tmpdir) / "schema.json"

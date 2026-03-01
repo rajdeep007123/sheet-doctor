@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import sys
@@ -53,6 +54,8 @@ SCORE_LABELS = [
     (30, "Poor — major surgery required"),
     (0, "Critical — severe data quality issues"),
 ]
+
+FAST_REPORT_FORMATS = {"xls"}
 
 
 def score_label(score: int) -> str:
@@ -224,11 +227,21 @@ def build_actions(
     healing_mode: str,
     heal_result: dict[str, Any],
     recoverability_score: dict[str, Any],
+    *,
+    projection_estimated: bool = False,
+    projection_reason: str | None = None,
 ) -> list[str]:
     actions: list[str] = []
     issues = diagnose_report.get("issues", [])
     auto_fixable_issues = [issue for issue in issues if issue["auto_fixable"]]
     manual_issues = [issue for issue in issues if not issue["auto_fixable"]]
+
+    if projection_estimated:
+        reason = projection_reason or "Full healing projection was skipped for this input."
+        actions.append(
+            "Run `sheet-doctor heal` directly for exact clean/quarantine counts; "
+            + reason
+        )
 
     if auto_fixable_issues:
         issue_types = len({issue["id"] for issue in auto_fixable_issues})
@@ -397,6 +410,22 @@ def render_text_report(report_json: dict[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def should_skip_heal_projection(diagnose_report: dict[str, Any]) -> tuple[bool, str | None]:
+    detected_format = diagnose_report.get("detected_format", "unknown")
+    degraded_mode = diagnose_report.get("degraded_mode", {})
+    row_accounting = diagnose_report.get("row_accounting", {})
+    parsed_rows = row_accounting.get("parsed_rows_total", 0)
+
+    if detected_format in FAST_REPORT_FORMATS:
+        return True, f"Full healing projection was skipped for legacy .xls input ({parsed_rows} parsed rows)."
+
+    if degraded_mode.get("active"):
+        reasons = degraded_mode.get("reasons") or ["The file exceeded normal comfort thresholds."]
+        return True, "Full healing projection was skipped because degraded mode is active: " + "; ".join(reasons)
+
+    return False, None
+
+
 def build_report(
     file_path: Path,
     *,
@@ -412,14 +441,39 @@ def build_report(
     healing_mode = diagnose_report.get("healing_mode_candidate", "generic")
 
     raw_score = calc_health_score(diagnose_report, column_report)
-    heal_result = execute_healing(
-        file_path,
-        sheet_name=sheet_name,
-        consolidate_sheets=consolidate_sheets,
-    )
-    clean_output_diagnose, clean_output_columns = build_clean_output_diagnose_report(heal_result)
-    post_heal_score = calc_health_score(clean_output_diagnose, clean_output_columns)
-    recoverability_score = calc_recoverability_score(heal_result, post_heal_score)
+    skip_projection, projection_reason = should_skip_heal_projection(diagnose_report)
+    if skip_projection:
+        row_accounting = diagnose_report.get("row_accounting") or {}
+        parsed_rows = row_accounting.get("parsed_rows_total", column_report.get("summary", {}).get("total_rows", 0))
+        heal_result = {
+            "mode": diagnose_report.get("healing_mode_candidate", "generic"),
+            "clean_data": [],
+            "quarantine": [],
+            "action_counts": Counter(),
+            "quarantine_reason_counts": {},
+        }
+        post_heal_score = copy.deepcopy(raw_score)
+        recoverability_score = {
+            "score": raw_score["score"],
+            "label": raw_score["label"],
+            "metrics": {
+                "clean_rows": parsed_rows,
+                "quarantine_rows": 0,
+                "needs_review_rows": 0,
+                "modified_rows": 0,
+                "salvage_ratio": 1.0,
+                "estimated": True,
+            },
+        }
+    else:
+        heal_result = execute_healing(
+            file_path,
+            sheet_name=sheet_name,
+            consolidate_sheets=consolidate_sheets,
+        )
+        clean_output_diagnose, clean_output_columns = build_clean_output_diagnose_report(heal_result)
+        post_heal_score = calc_health_score(clean_output_diagnose, clean_output_columns)
+        recoverability_score = calc_recoverability_score(heal_result, post_heal_score)
     issues = diagnose_report.get("issues", [])
     issues_by_severity = {
         severity: [issue for issue in issues if issue["severity"] == severity]
@@ -432,6 +486,8 @@ def build_report(
         healing_mode=healing_mode,
         heal_result=heal_result,
         recoverability_score=recoverability_score,
+        projection_estimated=skip_projection,
+        projection_reason=projection_reason,
     )
     assumptions = build_assumptions(healing_mode)
     pii_warning = None
@@ -470,12 +526,20 @@ def build_report(
         "pii_warning": pii_warning,
         "healing_projection": {
             "mode": heal_result["mode"],
-            "clean_rows": len(heal_result["clean_data"]),
-            "quarantine_rows": len(heal_result["quarantine"]),
-            "needs_review_rows": sum(1 for row in heal_result["clean_data"] if row.needs_review),
-            "modified_rows": sum(1 for row in heal_result["clean_data"] if row.was_modified),
+            "clean_rows": recoverability_score["metrics"].get("clean_rows", len(heal_result["clean_data"])),
+            "quarantine_rows": recoverability_score["metrics"].get("quarantine_rows", len(heal_result["quarantine"])),
+            "needs_review_rows": recoverability_score["metrics"].get(
+                "needs_review_rows",
+                sum(1 for row in heal_result["clean_data"] if row.needs_review),
+            ),
+            "modified_rows": recoverability_score["metrics"].get(
+                "modified_rows",
+                sum(1 for row in heal_result["clean_data"] if row.was_modified),
+            ),
             "action_counts": dict(heal_result["action_counts"]),
             "quarantine_reasons": heal_result["quarantine_reason_counts"],
+            "estimated": skip_projection,
+            "reason": projection_reason,
         },
         "source_reports": {
             "diagnose": diagnose_report,

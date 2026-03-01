@@ -373,6 +373,10 @@ Deployable machine outputs:
 | `.jsonl` | ✅ | ✅ | ✅ | ✅ |
 | `.parquet` | ❌ | ❌ | ❌ | ❌ |
 
+`sheet-doctor report` is intentionally narrower than `diagnose`:
+- it fast-fails on legacy `.xls` with an explicit “use diagnose/heal or convert to .xlsx first” message
+- it fast-fails on files larger than `50 MB` because full scored reporting is not the right path for large tabular inputs
+
 For files with **mixed encodings** (Latin-1 and UTF-8 bytes on different rows), the loader decodes line-by-line and never crashes.
 
 For **large inputs**, the loader now applies explicit safety rails:

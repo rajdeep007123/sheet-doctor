@@ -31,6 +31,8 @@ EXIT_HEAL_QUARANTINE = 4
 EXIT_VALIDATE_FAILED = 5
 EXIT_PARTIAL = 6
 
+REPORT_FAST_FAIL_BYTES = int(os.environ.get("SHEET_DOCTOR_REPORT_MAX_BYTES", str(50 * 1024 * 1024)))
+
 _MODULE_CACHE: dict[str, Any] = {}
 
 
@@ -146,6 +148,22 @@ def normalize_report_for_cli(payload: Any) -> Any:
         if isinstance(overview, dict) and "scanned_at" in overview:
             overview["scanned_at"] = "1970-01-01T00:00:00"
     return payload
+
+
+def report_fast_fail_reason(input_path: Path) -> str | None:
+    if input_path.suffix.lower() == ".xls":
+        return "sheet-doctor report is not supported for legacy .xls inputs. Use `sheet-doctor diagnose`, `sheet-doctor heal`, or convert the workbook to .xlsx first."
+    try:
+        size_bytes = input_path.stat().st_size
+    except OSError:
+        return None
+    if size_bytes > REPORT_FAST_FAIL_BYTES:
+        return (
+            "sheet-doctor report is disabled for files larger than "
+            f"{REPORT_FAST_FAIL_BYTES / (1024 * 1024):.1f} MB. "
+            "Use `sheet-doctor diagnose` for a fast scan or `sheet-doctor heal` directly."
+        )
+    return None
 
 
 def choose_backend(
@@ -335,6 +353,73 @@ def render_validate_text(payload: dict[str, Any]) -> str:
         for item in payload["type_mismatches"]:
             lines.append(f"- {item['column']}: expected {item['expected']}, got {item['detected']}")
     return "\n".join(lines) + "\n"
+
+
+def build_tabular_report_fallback(
+    diagnose_report: dict[str, Any],
+    *,
+    input_path: Path,
+    reason: str,
+) -> dict[str, Any]:
+    summary = diagnose_report.get("summary", {})
+    row_accounting = diagnose_report.get("row_accounting", {})
+    contract = load_script_module("csv-doctor", "reporter.py").build_contract("csv_doctor.report")
+    payload = {
+        "contract": contract,
+        "schema_version": contract["version"],
+        "tool_version": TOOL_VERSION,
+        "report_mode": "diagnose_fallback",
+        "fallback_reason": reason,
+        "file_overview": {
+            "file": input_path.name,
+            "rows": row_accounting.get("raw_data_rows_total", 0),
+            "parsed_rows": row_accounting.get("parsed_rows_total", 0),
+            "malformed_rows": row_accounting.get("malformed_rows_total", 0),
+            "dropped_rows": row_accounting.get("dropped_rows_total", 0),
+            "columns": diagnose_report.get("column_count", {}).get("expected", 0),
+            "format": diagnose_report.get("detected_format", "unknown"),
+            "encoding": diagnose_report.get("detected_encoding", "unknown"),
+            "sheet_name": diagnose_report.get("sheet_name"),
+            "scanned_at": "1970-01-01T00:00:00",
+        },
+        "summary": summary,
+        "healing_projection": {
+            "estimated": True,
+            "mode": "projection_skipped",
+            "reason": reason,
+            "clean_rows": row_accounting.get("parsed_rows_total", 0),
+            "quarantine_rows": 0,
+            "needs_review_rows": 0,
+            "modified_rows": 0,
+            "action_counts": {},
+            "quarantine_reasons": {},
+        },
+        "source_reports": {
+            "diagnose": diagnose_report,
+        },
+        "run_summary": {
+            "tool": "sheet-doctor",
+            "tool_version": TOOL_VERSION,
+            "script": "cli.py",
+            "input_file": str(input_path),
+            "generated_at": "1970-01-01T00:00:00Z",
+            "metrics": {
+                "issues_found": summary.get("issue_count", 0),
+                "detected_format": diagnose_report.get("detected_format", "unknown"),
+                "report_mode": "diagnose_fallback",
+            },
+        },
+    }
+    payload["text_report"] = (
+        "sheet-doctor report\n"
+        f"File: {input_path.name}\n"
+        f"Mode: diagnose fallback\n"
+        f"Reason: {reason}\n"
+        f"Verdict: {summary.get('verdict', '[unknown]')}\n"
+        f"Issues: {summary.get('issue_count', 0)}\n"
+        "Run `sheet-doctor heal` directly for exact clean/quarantine counts.\n"
+    )
+    return payload
 
 
 EXPLAIN_RULES = {
@@ -575,6 +660,22 @@ def run_report(args: argparse.Namespace) -> int:
         eprint(f"File not found: {input_path}")
         return EXIT_COMMAND_ERROR
 
+    fast_fail_reason = report_fast_fail_reason(input_path)
+    if fast_fail_reason:
+        if args.json:
+            print(
+                json_dumps(
+                    {
+                        "error": fast_fail_reason,
+                        "input": str(input_path),
+                        "report_mode": "unsupported",
+                    }
+                )
+            )
+        else:
+            eprint(fast_fail_reason)
+        return EXIT_PARSE_FAILED
+
     try:
         backend = choose_backend(
             input_path=input_path,
@@ -590,13 +691,34 @@ def run_report(args: argparse.Namespace) -> int:
             machine_payload = normalized
         else:
             sheet_name = maybe_default_sheet(input_path, args.sheet_name, args.all_sheets)
-            report = load_script_module("csv-doctor", "reporter.py").build_report(
+            diagnose_report = load_script_module("csv-doctor", "diagnose.py").build_report(
                 input_path,
                 sheet_name=sheet_name,
                 consolidate_sheets=True if args.all_sheets else None,
             )
-            machine_payload = normalize_report_for_cli(report)
-            text_payload = machine_payload["text_report"]
+            diagnose_report = normalize_report_for_cli(diagnose_report)
+            fallback_reason = None
+            if input_path.suffix.lower() == ".xls":
+                fallback_reason = "Full scored report is skipped for legacy .xls files; use diagnose or heal directly for dependable timing."
+            elif diagnose_report.get("degraded_mode", {}).get("active"):
+                fallback_reason = "Full scored report is skipped when degraded mode is active; use diagnose or heal directly for dependable timing."
+
+            if fallback_reason:
+                machine_payload = build_tabular_report_fallback(
+                    diagnose_report,
+                    input_path=input_path,
+                    reason=fallback_reason,
+                )
+                machine_payload = normalize_report_for_cli(machine_payload)
+                text_payload = machine_payload["text_report"]
+            else:
+                report = load_script_module("csv-doctor", "reporter.py").build_report(
+                    input_path,
+                    sheet_name=sheet_name,
+                    consolidate_sheets=True if args.all_sheets else None,
+                )
+                machine_payload = normalize_report_for_cli(report)
+                text_payload = machine_payload["text_report"]
 
         if args.json or args.format == "json":
             write_json(report_path, machine_payload)
