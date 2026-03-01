@@ -7,6 +7,17 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Changed
+- **`csv-doctor` / `heal.py`** — workbook writes are now atomic:
+  - Writes to a temp workbook path first
+  - Replaces the final output only after a successful save
+  - Failed writes no longer leave half-written `.xlsx` files behind
+- **Tests / fixtures** — CI no longer depends on `/tmp` public corpora for the loader matrix:
+  - Added committed fixtures under `tests/fixtures/` for `.csv`, `.tsv`, `.xlsx`, `.xlsm`, `.ods`, `.json`, `.jsonl`, corrupt workbook cases, and workbook preamble/stacked/ragged layouts
+  - Added atomic-write regression coverage and header-only failure coverage for `csv-doctor/heal.py`
+- **`csv-doctor` / `loader.py`** — clearer user-facing failure contracts:
+  - Empty files now raise `ValueError("File is empty")`
+  - Encrypted/password-protected OOXML workbooks now raise a clear unsupported-file error
+  - Corrupt workbook errors remain wrapped in stable user-facing messages
 - **`csv-doctor` / `diagnose.py`** — format support now matches `loader.py`:
   - Supports `.csv`, `.tsv`, `.txt`, `.xlsx`, `.xls`, `.xlsm`, `.ods`, `.json`, and `.jsonl`
   - Added `--sheet <name>` and `--all-sheets` for multi-sheet workbook diagnosis in non-interactive runs
@@ -52,7 +63,7 @@ All notable changes to sheet-doctor are documented here.
 - **`.github/workflows/ci.yml`** — deployable CI pipeline:
   - Runs on push, PR, and manual dispatch
   - Tests Python `3.9`, `3.11`, and `3.12`
-  - Installs optional `.xls` / `.ods` dependencies in CI so the full loader matrix is exercised
+  - Installs optional `.xls` / `.ods` reader dependencies in CI so the in-repo fixture matrix is exercised where fixtures exist
   - Runs compile checks, the unit test suite, and a sample end-to-end CSV smoke pipeline
 - **`pyproject.toml`** — release/package metadata:
   - Declares core runtime dependencies and optional extras for legacy Excel (`xlrd`) and ODS (`odfpy`)
@@ -92,7 +103,7 @@ All notable changes to sheet-doctor are documented here.
   - Supports sequential batch processing with in-app status/progress and per-file download buttons
 - **`tests/test_loader.py`** — regression coverage for the universal loader:
   - Local behavior tests for strict `.txt` rejection and explicit multi-sheet workbook selection in non-interactive mode
-  - Public corpus integration tests covering `.csv`, `.tsv`, `.xlsx`, `.xls`, `.xlsm`, `.ods`, `.json`, `.jsonl`, plus corrupt `.xls` failure handling
+  - Fixture-backed tests covering `.csv`, `.tsv`, `.xlsx`, `.xlsm`, `.ods`, `.json`, `.jsonl`, plus corrupt workbook failure handling
 - **`tests/test_column_detector.py`** — regression coverage for semantic inference:
   - Locks down the expected type/issue profile for `sample-data/extreme_mess.csv`
   - Covers generic headers, whitespace and near-duplicate detection, and numeric/percentage ranges

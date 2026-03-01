@@ -22,8 +22,10 @@ import argparse
 import csv
 import io
 import json
+import os
 import re
 import sys
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -2068,7 +2070,7 @@ FILL_MODIFIED = PatternFill("solid", fgColor="FFF2CC")   # soft yellow
 FILL_REVIEW   = PatternFill("solid", fgColor="FCE4D6")   # soft orange
 
 
-def _write_workbook_fast(
+def _write_workbook_fast_impl(
     clean_data:  list[CleanRow],
     quarantine:  list[QuarantineRow],
     changelog:   list[Change],
@@ -2126,17 +2128,13 @@ def _write_workbook_fast(
     wb.save(output_path)
 
 
-def write_workbook(
+def _write_workbook_standard_impl(
     clean_data:  list[CleanRow],
     quarantine:  list[QuarantineRow],
     changelog:   list[Change],
     output_path: Path,
     headers: list[str] | None = None,
 ) -> None:
-    headers = headers or HEADERS
-    if len(clean_data) > WRITE_ONLY_THRESHOLD:
-        _write_workbook_fast(clean_data, quarantine, changelog, output_path, headers)
-        return
     wb = openpyxl.Workbook()
 
     # ── Sheet 1 — Clean Data ─────────────────────────────────────────────
@@ -2195,6 +2193,32 @@ def write_workbook(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
+
+
+def write_workbook(
+    clean_data:  list[CleanRow],
+    quarantine:  list[QuarantineRow],
+    changelog:   list[Change],
+    output_path: Path,
+    headers: list[str] | None = None,
+) -> None:
+    headers = headers or HEADERS
+    writer = _write_workbook_fast_impl if len(clean_data) > WRITE_ONLY_THRESHOLD else _write_workbook_standard_impl
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{output_path.stem}.",
+        suffix=output_path.suffix,
+        dir=str(output_path.parent),
+    )
+    os.close(fd)
+    temp_path = Path(tmp_name)
+    try:
+        writer(clean_data, quarantine, changelog, temp_path, headers)
+        os.replace(temp_path, output_path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 # ══════════════════════════════════════════════════════════════════════════

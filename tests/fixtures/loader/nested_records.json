@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "source": "fixture"
+  },
+  "rows": [
+    {
+      "name": "Ada",
+      "city": "London"
+    },
+    {
+      "name": "Grace",
+      "city": "New York"
+    }
+  ]
+}

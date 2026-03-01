@@ -127,6 +127,8 @@ For **Excel/ODS files with multiple sheets**, the loader prompts you to pick a s
 For **optional dependencies and corrupt workbook files**, the loader now fails more cleanly:
 - missing `xlrd` for `.xls` raises a clear `ImportError`
 - missing `odfpy` for `.ods` raises a clear `ImportError`
+- empty files raise `ValueError("File is empty")`
+- encrypted/password-protected OOXML workbooks raise a clear unsupported-file error
 - corrupt workbook opens are wrapped so parser/library spew does not leak into user-facing output
 
 `csv-doctor/heal.py` now exposes that workbook choice at the CLI layer:
@@ -175,9 +177,21 @@ pip install odfpy  # .ods OpenDocument files
 python -m unittest discover -s tests -v
 ```
 
-The test suite covers strict `.txt` rejection, multi-sheet workbook selection rules, and integration checks against public sample corpora when those fixtures are available locally.
+The test suite now uses committed in-repo fixtures under `tests/fixtures/` for:
+- `.csv`
+- `.tsv`
+- `.xlsx`
+- `.xlsm`
+- `.ods`
+- `.json`
+- `.jsonl`
+- corrupt workbook cases
+- workbook preamble / stacked-header / ragged-layout rescue cases
 
-CI runs the same checks from [`.github/workflows/ci.yml`](/Users/razzo/Documents/For%20Codex/sheet-doctor/.github/workflows/ci.yml), plus compile checks and a sample end-to-end CSV smoke test.
+Remaining optional/manual gap:
+- happy-path legacy `.xls` loading is still not covered by a committed fixture because the repo does not ship a legacy `.xls` writer toolchain; CI still covers `.xls` missing-dependency and corrupt-file error handling
+
+CI runs the same checks from [`.github/workflows/ci.yml`](/Users/razzo/Documents/For%20Codex/sheet-doctor/.github/workflows/ci.yml), plus compile checks, workbook/JSON diagnose-report smoke checks, and the sample end-to-end CSV pipeline.
 
 **4. Register the skills with Claude Code**
 
@@ -251,6 +265,7 @@ Remote file-type detection:
 - Password-protected / encrypted Excel files are not supported.
 - `.parquet` is not supported.
 - Large files are still processed in memory. Guardrails prevent obviously unsafe runs, but this is not a streaming pipeline.
+- happy-path `.xls` coverage remains optional/manual in CI because the repo does not currently ship a committed writable legacy `.xls` fixture
 - Public URL mode depends on the remote server actually serving a directly downloadable file.
 - Health scores are heuristic summaries, not guarantees of business correctness.
 - `excel-doctor` is the better fit when preserving workbook structure matters more than flattening the data into a readable table.

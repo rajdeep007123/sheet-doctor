@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import Optional
 from unittest import mock
 
 from openpyxl import Workbook
+
 
 _XLRD_AVAILABLE = importlib.util.find_spec("xlrd") is not None
 _ODFPY_AVAILABLE = importlib.util.find_spec("odf") is not None
@@ -15,6 +15,7 @@ _ODFPY_AVAILABLE = importlib.util.find_spec("odf") is not None
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOADER_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "loader.py"
+FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "loader"
 
 
 def load_loader_module():
@@ -23,14 +24,6 @@ def load_loader_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
-def public_fixture(*candidates: str) -> Optional[Path]:
-    for candidate in candidates:
-        path = Path(candidate)
-        if path.exists():
-            return path
-    return None
 
 
 class LoaderLocalBehaviorTests(unittest.TestCase):
@@ -44,6 +37,14 @@ class LoaderLocalBehaviorTests(unittest.TestCase):
             path.write_text("This is a text file.\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "does not appear to contain delimited/tabular data"):
+                self.loader.load_file(path)
+
+    def test_empty_text_file_raises_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "empty.csv"
+            path.write_text("", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "File is empty"):
                 self.loader.load_file(path)
 
     def test_missing_xlrd_raises_clear_importerror(self):
@@ -173,102 +174,55 @@ class LoaderLocalBehaviorTests(unittest.TestCase):
             self.assertIn("Consolidated 2 sheets into one table.", result["warnings"])
 
 
-class LoaderPublicCorpusTests(unittest.TestCase):
+class LoaderFixtureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.loader = load_loader_module()
-        cls.csv_path = public_fixture(
-            "/tmp/realworld-messy-dataset/messy_IMDB_dataset.csv",
-        )
-        cls.tsv_path = public_fixture(
-            "/tmp/wikitablequestions/data/training.tsv",
-        )
-        cls.xlsx_path = public_fixture(
-            "/tmp/calamine-repo/tests/any_sheets.xlsx",
-        )
-        cls.xls_path = public_fixture(
-            "/tmp/calamine-repo/tests/any_sheets.xls",
-        )
-        cls.xlsm_path = public_fixture(
-            "/tmp/calamine-repo/tests/issue221.xlsm",
-        )
-        cls.ods_path = public_fixture(
-            "/tmp/calamine-repo/tests/any_sheets.ods",
-        )
-        cls.json_path = public_fixture(
-            "/tmp/vega-datasets/data/movies.json",
-        )
-        cls.json_nested_path = public_fixture(
-            "/tmp/vega-datasets/data/miserables.json",
-        )
-        cls.jsonl_path = public_fixture(
-            "/tmp/jsonl-repo/tests/data/foo.jsonl",
-        )
-        cls.corrupt_xls_path = public_fixture(
-            "/tmp/xlrd-repo/tests/samples/corrupted_error.xls",
-        )
+        cls.csv_path = FIXTURE_DIR / "semicolon_people.csv"
+        cls.tsv_path = FIXTURE_DIR / "sample.tsv"
+        cls.xlsx_path = FIXTURE_DIR / "multisheet.xlsx"
+        cls.xlsm_path = FIXTURE_DIR / "multisheet.xlsm"
+        cls.ods_path = FIXTURE_DIR / "multisheet.ods"
+        cls.json_path = FIXTURE_DIR / "records.json"
+        cls.json_nested_path = FIXTURE_DIR / "nested_records.json"
+        cls.jsonl_path = FIXTURE_DIR / "records.jsonl"
+        cls.corrupt_xls_path = FIXTURE_DIR / "corrupt.xls"
+        cls.corrupt_xlsx_path = FIXTURE_DIR / "corrupt.xlsx"
+        cls.encrypted_xlsx_path = FIXTURE_DIR / "encrypted.xlsx"
 
-    def test_public_csv_loads_with_semicolon_detection(self):
-        if self.csv_path is None:
-            self.skipTest("public CSV fixture not available")
-
+    def test_fixture_csv_loads_with_semicolon_detection(self):
         result = self.loader.load_file(self.csv_path)
 
         self.assertEqual(result["detected_format"], "csv")
         self.assertEqual(result["delimiter"], ";")
-        self.assertEqual(result["dataframe"].shape, (101, 12))
+        self.assertEqual(result["dataframe"].shape, (2, 3))
 
-    def test_public_tsv_loads(self):
-        if self.tsv_path is None:
-            self.skipTest("public TSV fixture not available")
-
+    def test_fixture_tsv_loads(self):
         result = self.loader.load_file(self.tsv_path)
 
         self.assertEqual(result["detected_format"], "tsv")
         self.assertEqual(result["delimiter"], "\t")
-        self.assertEqual(result["dataframe"].shape[1], 4)
+        self.assertEqual(result["dataframe"].shape, (2, 3))
 
-    def test_public_xlsx_requires_sheet_name_noninteractive(self):
-        if self.xlsx_path is None:
-            self.skipTest("public XLSX fixture not available")
-
+    def test_fixture_xlsx_requires_sheet_name_noninteractive(self):
         with self.assertRaisesRegex(ValueError, "Available sheets"):
             self.loader.load_file(self.xlsx_path)
 
-    def test_public_xlsx_loads_selected_sheet(self):
-        if self.xlsx_path is None:
-            self.skipTest("public XLSX fixture not available")
-
+    def test_fixture_xlsx_loads_selected_sheet(self):
         result = self.loader.load_file(self.xlsx_path, sheet_name="Visible")
 
         self.assertEqual(result["sheet_name"], "Visible")
         self.assertEqual(result["sheet_names"], ["Visible", "Hidden", "VeryHidden"])
         self.assertEqual(result["dataframe"].shape, (4, 2))
 
-    def test_public_xls_loads_selected_sheet(self):
-        if self.xls_path is None:
-            self.skipTest("public XLS fixture not available")
-        if not _XLRD_AVAILABLE:
-            self.skipTest("xlrd not installed — run: pip install xlrd")
-
-        result = self.loader.load_file(self.xls_path, sheet_name="Visible")
-
-        self.assertEqual(result["detected_format"], "xls")
-        self.assertEqual(result["dataframe"].shape, (4, 2))
-
-    def test_public_xlsm_loads(self):
-        if self.xlsm_path is None:
-            self.skipTest("public XLSM fixture not available")
-
-        result = self.loader.load_file(self.xlsm_path)
+    def test_fixture_xlsm_loads_selected_sheet(self):
+        result = self.loader.load_file(self.xlsm_path, sheet_name="Visible")
 
         self.assertEqual(result["detected_format"], "xlsm")
-        self.assertEqual(result["sheet_name"], "Sheet1")
-        self.assertEqual(result["dataframe"].shape, (1, 2))
+        self.assertEqual(result["sheet_name"], "Visible")
+        self.assertEqual(result["dataframe"].shape, (4, 2))
 
-    def test_public_ods_loads_selected_sheet(self):
-        if self.ods_path is None:
-            self.skipTest("public ODS fixture not available")
+    def test_fixture_ods_loads_selected_sheet(self):
         if not _ODFPY_AVAILABLE:
             self.skipTest("odfpy not installed — run: pip install odfpy")
 
@@ -276,48 +230,43 @@ class LoaderPublicCorpusTests(unittest.TestCase):
 
         self.assertEqual(result["detected_format"], "ods")
         self.assertEqual(result["sheet_name"], "Visible")
-        self.assertEqual(result["dataframe"].shape, (4, 2))
+        self.assertEqual(result["dataframe"].shape, (2, 2))
 
-    def test_public_json_loads(self):
-        if self.json_path is None:
-            self.skipTest("public JSON fixture not available")
-
+    def test_fixture_json_loads(self):
         result = self.loader.load_file(self.json_path)
 
         self.assertEqual(result["detected_format"], "json")
-        self.assertEqual(result["dataframe"].shape, (3201, 16))
+        self.assertEqual(result["dataframe"].shape, (2, 4))
 
-    def test_public_nested_json_flattens(self):
-        if self.json_nested_path is None:
-            self.skipTest("public nested JSON fixture not available")
-
+    def test_fixture_nested_json_flattens(self):
         result = self.loader.load_file(self.json_nested_path)
 
         self.assertEqual(result["detected_format"], "json")
-        self.assertEqual(result["dataframe"].shape, (77, 3))
-        self.assertIn("Nested JSON: used array at top-level key 'nodes'", result["warnings"])
+        self.assertEqual(result["dataframe"].shape, (2, 2))
+        self.assertIn("Nested JSON: used array at top-level key 'rows'", result["warnings"])
 
-    def test_public_jsonl_loads(self):
-        if self.jsonl_path is None:
-            self.skipTest("public JSONL fixture not available")
-
+    def test_fixture_jsonl_loads(self):
         result = self.loader.load_file(self.jsonl_path)
 
         self.assertEqual(result["detected_format"], "jsonl")
-        self.assertEqual(result["dataframe"].shape, (4, 2))
+        self.assertEqual(result["dataframe"].shape, (2, 4))
 
-    def test_public_corrupt_xls_raises_clear_error(self):
-        if self.corrupt_xls_path is None:
-            self.skipTest("public corrupt XLS fixture not available")
+    def test_fixture_encrypted_xlsx_raises_clear_error(self):
+        with self.assertRaisesRegex(ValueError, "Password-protected Excel workbooks are not supported"):
+            self.loader.load_file(self.encrypted_xlsx_path)
+
+    def test_fixture_corrupt_xlsx_raises_clear_error(self):
+        with self.assertRaisesRegex(ValueError, "Could not open workbook"):
+            self.loader.load_file(self.corrupt_xlsx_path)
+
+    def test_fixture_corrupt_xls_raises_clear_error(self):
         if not _XLRD_AVAILABLE:
             self.skipTest("xlrd not installed — run: pip install xlrd")
 
         with self.assertRaisesRegex(ValueError, "Could not open workbook"):
             self.loader.load_file(self.corrupt_xls_path)
 
-    def test_public_corrupt_xls_does_not_leak_parser_noise(self):
-        if self.corrupt_xls_path is None:
-            self.skipTest("public corrupt XLS fixture not available")
+    def test_fixture_corrupt_xls_does_not_leak_parser_noise(self):
         if not _XLRD_AVAILABLE:
             self.skipTest("xlrd not installed — run: pip install xlrd")
 

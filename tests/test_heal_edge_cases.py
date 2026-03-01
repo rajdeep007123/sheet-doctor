@@ -1,14 +1,17 @@
 import importlib.util
-import sys
 import tempfile
+import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from openpyxl import Workbook
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HEAL_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "heal.py"
+LOADER_FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "loader"
+WORKBOOK_FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "workbooks"
 
 
 def load_module(path: Path, module_name: str):
@@ -420,6 +423,43 @@ class HealEdgeCaseTests(unittest.TestCase):
             self.assertEqual(result["clean_data"][0].row[1], "Ward C")
             self.assertEqual(result["clean_data"][0].row[2], "2023-01-18")
             self.assertEqual(result["clean_data"][0].row[4], "Approved")
+
+    def test_execute_healing_rejects_header_only_file(self):
+        header_only_path = LOADER_FIXTURE_DIR / "header_only.csv"
+
+        with self.assertRaisesRegex(ValueError, "File is empty or has only a header"):
+            self.heal.execute_healing(header_only_path)
+
+    def test_write_workbook_is_atomic_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "atomic.xlsx"
+            output_path.write_bytes(b"existing workbook bytes")
+
+            def failing_writer(clean_data, quarantine, changelog, temp_path, headers):
+                temp_path.write_bytes(b"partial workbook bytes")
+                raise RuntimeError("simulated write failure")
+
+            with mock.patch.object(self.heal, "_write_workbook_standard_impl", side_effect=failing_writer):
+                with self.assertRaisesRegex(RuntimeError, "simulated write failure"):
+                    self.heal.write_workbook([], [], [], output_path, headers=["name"])
+
+            self.assertEqual(output_path.read_bytes(), b"existing workbook bytes")
+            leftovers = list(output_path.parent.glob(".atomic.*.xlsx"))
+            self.assertEqual(leftovers, [])
+
+    def test_committed_preamble_workbook_fixture_heals(self):
+        result = self.heal.execute_healing(WORKBOOK_FIXTURE_DIR / "preamble_workbook.xlsx", sheet_name="Transactions")
+
+        self.assertEqual(result["mode"], "semantic")
+        self.assertEqual(result["clean_data"][0].row[0], "Ada Lovelace")
+        self.assertTrue(any("File Metadata" in change.reason for change in result["changelog"]))
+
+    def test_committed_ragged_workbook_fixture_heals(self):
+        result = self.heal.execute_healing(WORKBOOK_FIXTURE_DIR / "ragged_workbook.xlsx", sheet_name="Ward Report")
+
+        self.assertEqual(result["mode"], "semantic")
+        self.assertEqual(result["clean_data"][0].row[0], "Alice Wong")
+        self.assertEqual(result["clean_data"][1].row[1], "Ward A")
 
 
 if __name__ == "__main__":

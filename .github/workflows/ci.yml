@@ -41,4 +41,6 @@ jobs:
           python sample-data/generate_extreme_mess.py
           python skills/csv-doctor/scripts/diagnose.py sample-data/extreme_mess.csv > /tmp/extreme_diagnose.json
           python skills/csv-doctor/scripts/reporter.py sample-data/extreme_mess.csv /tmp/extreme_report.txt /tmp/extreme_report.json
+          python skills/csv-doctor/scripts/diagnose.py sample-data/messy_sample.xlsx --sheet Orders > /tmp/orders_diagnose.json
+          python skills/csv-doctor/scripts/reporter.py tests/fixtures/loader/records.json /tmp/fixture_report.txt /tmp/fixture_report.json
           python skills/csv-doctor/scripts/heal.py sample-data/extreme_mess.csv /tmp/extreme_healed.xlsx --json-summary /tmp/extreme_heal_summary.json

@@ -1,0 +1,14 @@
+[
+  {
+    "employee": "Ada",
+    "date": "2024-01-01",
+    "amount": "$12.50",
+    "status": "approved"
+  },
+  {
+    "employee": "Ben",
+    "date": "2024/02/03",
+    "amount": "15 EUR",
+    "status": "Pending"
+  }
+]

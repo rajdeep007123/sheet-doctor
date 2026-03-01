@@ -31,6 +31,7 @@ import contextlib
 import io
 import json as _json
 import sys
+import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -273,6 +274,32 @@ def _append_row_guardrails(row_count: int, warnings: list[str], degraded_reasons
         )
 
 
+def _raise_if_empty_bytes(raw: bytes) -> None:
+    if not raw.strip():
+        raise ValueError("File is empty")
+
+
+def _normalise_workbook_error(exc: Exception, *, suffix: str) -> ValueError:
+    message = str(exc)
+    lowered = message.lower()
+    if "password" in lowered or "encrypted" in lowered:
+        return ValueError("Password-protected Excel workbooks are not supported")
+    if suffix == ".ods":
+        return ValueError(f"Could not open .ods file: {message}")
+    return ValueError(f"Could not open workbook: {message}")
+
+
+def _is_encrypted_ooxml(path: Path) -> bool:
+    if not zipfile.is_zipfile(path):
+        return False
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = set(archive.namelist())
+    except Exception:
+        return False
+    return {"EncryptedPackage", "EncryptionInfo"}.issubset(names)
+
+
 def _with_quiet_workbook_errors(func):
     stdout_buffer = io.StringIO()
     stderr_buffer = io.StringIO()
@@ -359,6 +386,7 @@ def _load_text(path: Path, suffix: str) -> dict:
     _append_size_guardrails(path, warnings, degraded_reasons)
 
     raw      = path.read_bytes()
+    _raise_if_empty_bytes(raw)
     enc_info = _detect_encoding_info(raw)
     enc      = enc_info["detected"] if enc_info["detected"] != "unknown" else "utf-8"
     text     = _read_text_safely(raw, enc)
@@ -474,12 +502,14 @@ def _load_excel(
             raise ImportError(
                 ".xls files require xlrd — run: pip install xlrd"
             )
+    elif _is_encrypted_ooxml(path):
+        raise ValueError("Password-protected Excel workbooks are not supported")
 
     try:
         with _with_quiet_workbook_errors(lambda: pd.ExcelFile(path)) as xf:
             all_sheets = list(xf.sheet_names)
     except Exception as exc:
-        raise ValueError(f"Could not open workbook: {exc}") from exc
+        raise _normalise_workbook_error(exc, suffix=suffix) from exc
 
     if len(all_sheets) == 1:
         chosen_name = all_sheets[0]
@@ -533,9 +563,9 @@ def _load_excel(
         try:
             df = _with_quiet_workbook_errors(lambda: pd.read_excel(path, sheet_name=chosen_name, dtype=str))
         except Exception as exc:
-            raise ValueError(
-                f"Could not load sheet '{chosen_name}': {exc}"
-            ) from exc
+            if "password" in str(exc).lower() or "encrypted" in str(exc).lower():
+                raise ValueError("Password-protected Excel workbooks are not supported") from exc
+            raise ValueError(f"Could not load sheet '{chosen_name}': {exc}") from exc
         active_sheet = chosen_name
 
         if len(all_sheets) > 1:
@@ -592,6 +622,8 @@ def _load_ods(
             ".ods files require odfpy — run: pip install odfpy"
         )
 
+    raw = path.read_bytes()
+    _raise_if_empty_bytes(raw)
     warnings: list[str] = []
     degraded_reasons: list[str] = []
     _append_size_guardrails(path, warnings, degraded_reasons)
@@ -600,7 +632,7 @@ def _load_ods(
         with pd.ExcelFile(path, engine="odf") as xf:
             all_sheets = list(xf.sheet_names)
     except Exception as exc:
-        raise ValueError(f"Could not open .ods file: {exc}") from exc
+        raise _normalise_workbook_error(exc, suffix=".ods") from exc
 
     if len(all_sheets) == 1:
         chosen_name = all_sheets[0]
@@ -696,6 +728,7 @@ def _load_json(path: Path) -> dict:
     import pandas as pd
 
     raw      = path.read_bytes()
+    _raise_if_empty_bytes(raw)
     warnings: list[str] = []
     degraded_reasons: list[str] = []
     _append_size_guardrails(path, warnings, degraded_reasons)
@@ -766,6 +799,7 @@ def _load_jsonl(path: Path) -> dict:
     import pandas as pd
 
     raw      = path.read_bytes()
+    _raise_if_empty_bytes(raw)
     warnings: list[str] = []
     degraded_reasons: list[str] = []
     _append_size_guardrails(path, warnings, degraded_reasons)
