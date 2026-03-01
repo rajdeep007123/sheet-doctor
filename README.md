@@ -41,20 +41,23 @@ What it fixes:
 - table-like workbook exports with preamble rows and stacked headers
 - workbook structural issues like merged ranges and empty edge columns
 
-Why this exists:
-- spreadsheets are messy, but many cleanup tools are interactive first
-- `sheet-doctor` is for repeatable local cleanup with audit artifacts
-- it is useful when you want:
-  - scriptable CLI runs
-  - quarantine instead of silent deletion
-  - explicit change logs
-  - CI-friendly exit codes and JSON output
+## Why this exists
 
-Why not just use OpenRefine?
-- OpenRefine is interactive first; `sheet-doctor` is scriptable and headless first
-- OpenRefine is great for exploratory cleanup; `sheet-doctor` is built for repeatable runs and saved artifacts
-- `sheet-doctor` gives you quarantine and change logs as first-class outputs
-- `sheet-doctor` is local-first and CI-friendly, but it is not a replacement for every spreadsheet workflow
+- Spreadsheets are messy.
+- Many cleanup tools are interactive first.
+- `sheet-doctor` exists for repeatable local cleanup.
+- It is useful when you want scriptable, headless workflows.
+- It is useful when you want quarantine instead of silent deletion.
+- It is useful when you want change logs for auditability.
+- It is useful when you want CI-friendly exit codes and JSON output.
+- It is strongest on messy CSVs and table-like spreadsheet exports.
+- It helps with workbook-native `.xlsx` / `.xlsm` cleanup, but keeps residual risk explicit.
+- It is not a replacement for every spreadsheet workflow.
+
+Quick comparison:
+- OpenRefine: stronger for interactive exploration; `sheet-doctor` is stronger for repeatable headless runs with saved artifacts.
+- pandas notebooks: stronger for custom analysis; `sheet-doctor` is stronger when you want a packaged cleanup flow with quarantine and change logs.
+- Manual Excel cleanup: stronger for one-off human judgment; `sheet-doctor` is stronger when you need repeatable cleanup with audit trails.
 
 ## What it does
 

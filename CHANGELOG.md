@@ -12,6 +12,10 @@ All notable changes to sheet-doctor are documented here.
   - Added a short comparison block explaining where `sheet-doctor` differs from OpenRefine and manual spreadsheet cleanup
   - Moved Claude Code integration lower in the README as an optional integration instead of the headline
   - Made the install section explicit that Claude Code is optional and the CLI is the primary interface
+- **README why-this-exists block** — the top of the README now includes a short explicit product-positioning section:
+  - says plainly that spreadsheets are messy and many tools are interactive first
+  - states that `sheet-doctor` is for local-first, scriptable cleanup with quarantine and change logs
+  - adds a brief factual comparison against OpenRefine, pandas notebooks, and manual Excel cleanup
 - **README proof examples** — replaced more abstract claims with concrete before/after examples:
   - Added a messy CSV example using `sample-data/extreme_mess.csv`
   - Added an ugly workbook example using `tests/fixtures/excel/stacked_headers.xlsx`
