@@ -14,7 +14,7 @@
     "columns": 8,
     "format": "csv",
     "encoding": "WINDOWS-1250",
-    "scanned_at": "2026-03-01T11:47:39"
+    "scanned_at": "2026-03-01T12:12:00"
   },
   "health_score": {
     "score": 32,
@@ -402,7 +402,7 @@
   "assumptions": [
     "Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values",
     "Ambiguous DD/MM vs MM/DD dates: day-first assumed; fallback to month-first if day-first is impossible",
-    "MM-DD-YY two-digit years: treated as 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50",
+    "DD-MM-YY / MM-DD-YY two-digit years: day-first assumed; fallback to month-first if impossible; 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50",
     "Unix timestamps: interpreted as UTC; converted to YYYY-MM-DD",
     "Excel serial dates: Windows epoch (1899-12-30); range 40,000–55,000 treated as dates",
     "European decimal 1.200,00: detected when period precedes comma; converted to 1200.00",
@@ -578,6 +578,7 @@
               "Rachel Green"
             ],
             "has_mixed_types": false,
+            "analysis_sampled": false,
             "suspected_issues": [
               "Inconsistent capitalisation",
               "Possible PII detected (emails/phones/names)"
@@ -623,6 +624,7 @@
               "Marketing"
             ],
             "has_mixed_types": false,
+            "analysis_sampled": false,
             "suspected_issues": [
               "Inconsistent capitalisation",
               "Possible duplicates with slight differences"
@@ -670,6 +672,7 @@
               "44910"
             ],
             "has_mixed_types": false,
+            "analysis_sampled": false,
             "suspected_issues": [
               "Mixed date formats detected",
               "Inconsistent capitalisation"
@@ -718,6 +721,7 @@
               "$1,200.00"
             ],
             "has_mixed_types": true,
+            "analysis_sampled": false,
             "suspected_issues": [
               "Possible duplicates with slight differences",
               "Outliers detected (values outside 3 standard deviations)"
@@ -764,6 +768,7 @@
               "$"
             ],
             "has_mixed_types": false,
+            "analysis_sampled": false,
             "suspected_issues": [
               "Inconsistent capitalisation",
               "Possible duplicates with slight differences"
@@ -809,6 +814,7 @@
               "Equipment"
             ],
             "has_mixed_types": false,
+            "analysis_sampled": false,
             "suspected_issues": []
           },
           "Status": {
@@ -852,6 +858,7 @@
               "rejected"
             ],
             "has_mixed_types": false,
+            "analysis_sampled": false,
             "suspected_issues": [
               "Inconsistent capitalisation",
               "Possible duplicates with slight differences"
@@ -896,6 +903,7 @@
               "Overpayment reversal"
             ],
             "has_mixed_types": false,
+            "analysis_sampled": false,
             "suspected_issues": []
           }
         },
@@ -1204,7 +1212,7 @@
         "tool": "csv-doctor",
         "script": "diagnose.py",
         "status": "ok",
-        "generated_at": "2026-03-01T06:17:39Z",
+        "generated_at": "2026-03-01T06:42:00Z",
         "input_file": "sample-data/extreme_mess.csv",
         "output_file": null,
         "warnings_count": 1,
@@ -1264,6 +1272,7 @@
             "Rachel Green"
           ],
           "has_mixed_types": false,
+          "analysis_sampled": false,
           "suspected_issues": [
             "Inconsistent capitalisation",
             "Possible PII detected (emails/phones/names)"
@@ -1309,6 +1318,7 @@
             "Marketing"
           ],
           "has_mixed_types": false,
+          "analysis_sampled": false,
           "suspected_issues": [
             "Inconsistent capitalisation",
             "Possible duplicates with slight differences"
@@ -1356,6 +1366,7 @@
             "44910"
           ],
           "has_mixed_types": false,
+          "analysis_sampled": false,
           "suspected_issues": [
             "Mixed date formats detected",
             "Inconsistent capitalisation"
@@ -1404,6 +1415,7 @@
             "$1,200.00"
           ],
           "has_mixed_types": true,
+          "analysis_sampled": false,
           "suspected_issues": [
             "Possible duplicates with slight differences",
             "Outliers detected (values outside 3 standard deviations)"
@@ -1450,6 +1462,7 @@
             "$"
           ],
           "has_mixed_types": false,
+          "analysis_sampled": false,
           "suspected_issues": [
             "Inconsistent capitalisation",
             "Possible duplicates with slight differences"
@@ -1495,6 +1508,7 @@
             "Equipment"
           ],
           "has_mixed_types": false,
+          "analysis_sampled": false,
           "suspected_issues": []
         },
         "Status": {
@@ -1538,6 +1552,7 @@
             "rejected"
           ],
           "has_mixed_types": false,
+          "analysis_sampled": false,
           "suspected_issues": [
             "Inconsistent capitalisation",
             "Possible duplicates with slight differences"
@@ -1582,6 +1597,7 @@
             "Overpayment reversal"
           ],
           "has_mixed_types": false,
+          "analysis_sampled": false,
           "suspected_issues": []
         }
       },
@@ -1610,7 +1626,7 @@
     "tool": "csv-doctor",
     "script": "reporter.py",
     "status": "ok",
-    "generated_at": "2026-03-01T06:17:39Z",
+    "generated_at": "2026-03-01T06:42:00Z",
     "input_file": "sample-data/extreme_mess.csv",
     "output_file": null,
     "warnings_count": 0,
@@ -1626,5 +1642,5 @@
       "issues_found": 16
     }
   },
-  "text_report": "SECTION 1 — FILE OVERVIEW\n📄 File: extreme_mess.csv\n📊 Size: 51 rows × 8 columns\n🧾 Parsed cleanly: 46 rows\n🧯 Malformed rows: 8 | Skipped by parser: 5\n💾 Format: csv\n🔤 Encoding: WINDOWS-1250\n⏱  Scanned: 2026-03-01T11:47:39\n\nSECTION 2 — HEALTH SCORE\n🩺 Raw Health Score: 32/100 (Poor — major surgery required)\n🛟 Recoverability Score: 71/100 (Good — a few issues to address)\n✨ Post-Heal Score: 79/100 (Good — a few issues to address)\n  • Raw deductions — Encoding: -10, Structural: -30, Date chaos: -5, Missing data: -3, Duplicates: -10, Data quality: -10\n  • Healing projection — Clean rows: 42, Quarantine rows: 5, Needs review: 11, Fixed changes: 92\n\n⚠️ This file appears to contain PII. Handle according to your data protection policy.\n\nSECTION 3 — ISSUES FOUND\n🚨 Critical (will break imports)\n- Some rows have too many or too few columns, which will break imports and shift values into the wrong fields.\n  Columns: row structure\n  Rows affected: 8\n  Auto-fixable: ✅\n- The header row appears again inside the data, which will be treated as a broken data row during import.\n  Columns: row structure\n  Rows affected: 1\n  Auto-fixable: ✅\n\n⚠️  Warning (will cause analysis errors)\n- The file uses WINDOWS-1250 instead of UTF-8, so some systems may misread special characters.\n  Columns: file-wide\n  Rows affected: 51\n  Auto-fixable: ✅\n- The Employee Name column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Employee Name\n  Rows affected: 49\n  Auto-fixable: ✅\n- The Date column mixes multiple date formats, so the same date may be interpreted differently by different tools.\n  Columns: Date\n  Rows affected: 47\n  Auto-fixable: ✅\n- The Department column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Department\n  Rows affected: 47\n  Auto-fixable: ✅\n- The Department column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Department\n  Rows affected: 47\n  Auto-fixable: ❌\n- The Currency column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Currency\n  Rows affected: 46\n  Auto-fixable: ✅\n- The Currency column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Currency\n  Rows affected: 46\n  Auto-fixable: ✅\n- The Amount column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Amount\n  Rows affected: 45\n  Auto-fixable: ✅\n- The Amount column contains outlier values that look unusually large or small compared with the rest of the file.\n  Columns: Amount\n  Rows affected: 45\n  Auto-fixable: ❌\n- The Status column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Status\n  Rows affected: 44\n  Auto-fixable: ✅\n- The Status column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Status\n  Rows affected: 44\n  Auto-fixable: ✅\n- Some characters look corrupted, which may change names, notes, or other text values.\n  Columns: file-wide\n  Rows affected: 3\n  Auto-fixable: ✅\n- Completely blank rows are mixed into the file and can interfere with import counts and analysis.\n  Columns: row structure\n  Rows affected: 2\n  Auto-fixable: ✅\n\nℹ️  Info (cosmetic, worth fixing)\n- The Employee Name column appears to contain personally identifiable information that may need extra care before sharing.\n  Columns: Employee Name\n  Rows affected: 49\n  Auto-fixable: ❌\n\nSECTION 4 — COLUMN BREAKDOWN\nEmployee Name | name | 4.35% null | Inconsistent capitalisation; Possible PII detected (emails/phones/names)\nDepartment | categorical | 8.7% null | Inconsistent capitalisation; Possible duplicates with slight differences\nDate | date | 8.7% null | Mixed date formats detected; Inconsistent capitalisation\nAmount | currency/amount | 13.04% null | Possible duplicates with slight differences; Outliers detected (values outside 3 standard deviations)\nCurrency | currency code | 10.87% null | Inconsistent capitalisation; Possible duplicates with slight differences\nCategory | categorical | 13.04% null | No major issues detected\nStatus | categorical | 15.22% null | Inconsistent capitalisation; Possible duplicates with slight differences\nNotes | free text | 15.22% null | No major issues detected\n\nSECTION 5 — RECOMMENDED ACTIONS\n1. Run sheet-doctor healing now: it can automatically address 8 issue type(s) across 13 flagged issue instance(s)\n2. Review 5 row(s) in the Quarantine tab that could not be repaired safely\n3. Manually inspect 11 cleaned row(s) still flagged `needs_review=TRUE` before relying on them downstream\n4. Normalize mixed date formats in Date (4 formats across about 47 populated row(s)) (auto-fixable)\n5. Review near-duplicate values in Department, Currency, Amount, Status to decide which versions should be merged or kept\n6. Manually check outlier values in Amount before trusting totals or downstream analysis\n\nSECTION 6 — ASSUMPTIONS\n• Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values\n• Ambiguous DD/MM vs MM/DD dates: day-first assumed; fallback to month-first if day-first is impossible\n• MM-DD-YY two-digit years: treated as 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50\n• Unix timestamps: interpreted as UTC; converted to YYYY-MM-DD\n• Excel serial dates: Windows epoch (1899-12-30); range 40,000–55,000 treated as dates\n• European decimal 1.200,00: detected when period precedes comma; converted to 1200.00\n• Combined values like '$1,200 USD' are split so Amount keeps the numeric value and Currency keeps the ISO code\n• Blank / N/A / TBD amounts: cleared to empty string and flagged needs_review=TRUE\n• \"INR ₹\" and similar symbol+code combos: symbol stripped, ISO code kept\n• \"Eng\" department abbreviation: kept as-is (expanding abbreviations requires a lookup table)\n• Short blank runs in categorical columns are forward-filled when they look like merged-cell export gaps; filled rows are flagged for review\n• Rows with long single-cell prose are treated as notes/metadata rather than transactional data\n• Rows labelled TOTAL/Subtotal/SUM are quarantined when the amount matches the running total closely enough to look calculated\n• Near-duplicate rows (same Name/Amount/Currency/Category, date within 2 days): both kept, both flagged\n• Exact duplicates: first occurrence kept; subsequent occurrences removed and logged\n• Short rows (< 8 columns): padded with empty strings; flagged needs_review=TRUE\n• Metadata export row (sparse, 1/8 fields filled): quarantined as 'Less than 50% columns filled'\n"
+  "text_report": "SECTION 1 — FILE OVERVIEW\n📄 File: extreme_mess.csv\n📊 Size: 51 rows × 8 columns\n🧾 Parsed cleanly: 46 rows\n🧯 Malformed rows: 8 | Skipped by parser: 5\n💾 Format: csv\n🔤 Encoding: WINDOWS-1250\n⏱  Scanned: 2026-03-01T12:12:00\n\nSECTION 2 — HEALTH SCORE\n🩺 Raw Health Score: 32/100 (Poor — major surgery required)\n🛟 Recoverability Score: 71/100 (Good — a few issues to address)\n✨ Post-Heal Score: 79/100 (Good — a few issues to address)\n  • Raw deductions — Encoding: -10, Structural: -30, Date chaos: -5, Missing data: -3, Duplicates: -10, Data quality: -10\n  • Healing projection — Clean rows: 42, Quarantine rows: 5, Needs review: 11, Fixed changes: 92\n\n⚠️ This file appears to contain PII. Handle according to your data protection policy.\n\nSECTION 3 — ISSUES FOUND\n🚨 Critical (will break imports)\n- Some rows have too many or too few columns, which will break imports and shift values into the wrong fields.\n  Columns: row structure\n  Rows affected: 8\n  Auto-fixable: ✅\n- The header row appears again inside the data, which will be treated as a broken data row during import.\n  Columns: row structure\n  Rows affected: 1\n  Auto-fixable: ✅\n\n⚠️  Warning (will cause analysis errors)\n- The file uses WINDOWS-1250 instead of UTF-8, so some systems may misread special characters.\n  Columns: file-wide\n  Rows affected: 51\n  Auto-fixable: ✅\n- The Employee Name column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Employee Name\n  Rows affected: 49\n  Auto-fixable: ✅\n- The Date column mixes multiple date formats, so the same date may be interpreted differently by different tools.\n  Columns: Date\n  Rows affected: 47\n  Auto-fixable: ✅\n- The Department column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Department\n  Rows affected: 47\n  Auto-fixable: ✅\n- The Department column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Department\n  Rows affected: 47\n  Auto-fixable: ❌\n- The Currency column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Currency\n  Rows affected: 46\n  Auto-fixable: ✅\n- The Currency column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Currency\n  Rows affected: 46\n  Auto-fixable: ✅\n- The Amount column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Amount\n  Rows affected: 45\n  Auto-fixable: ✅\n- The Amount column contains outlier values that look unusually large or small compared with the rest of the file.\n  Columns: Amount\n  Rows affected: 45\n  Auto-fixable: ❌\n- The Status column uses inconsistent capitalisation, which can split what should be one category into several versions.\n  Columns: Status\n  Rows affected: 44\n  Auto-fixable: ✅\n- The Status column appears to contain near-duplicate values that differ only slightly, such as spacing or casing changes.\n  Columns: Status\n  Rows affected: 44\n  Auto-fixable: ✅\n- Some characters look corrupted, which may change names, notes, or other text values.\n  Columns: file-wide\n  Rows affected: 3\n  Auto-fixable: ✅\n- Completely blank rows are mixed into the file and can interfere with import counts and analysis.\n  Columns: row structure\n  Rows affected: 2\n  Auto-fixable: ✅\n\nℹ️  Info (cosmetic, worth fixing)\n- The Employee Name column appears to contain personally identifiable information that may need extra care before sharing.\n  Columns: Employee Name\n  Rows affected: 49\n  Auto-fixable: ❌\n\nSECTION 4 — COLUMN BREAKDOWN\nEmployee Name | name | 4.35% null | Inconsistent capitalisation; Possible PII detected (emails/phones/names)\nDepartment | categorical | 8.7% null | Inconsistent capitalisation; Possible duplicates with slight differences\nDate | date | 8.7% null | Mixed date formats detected; Inconsistent capitalisation\nAmount | currency/amount | 13.04% null | Possible duplicates with slight differences; Outliers detected (values outside 3 standard deviations)\nCurrency | currency code | 10.87% null | Inconsistent capitalisation; Possible duplicates with slight differences\nCategory | categorical | 13.04% null | No major issues detected\nStatus | categorical | 15.22% null | Inconsistent capitalisation; Possible duplicates with slight differences\nNotes | free text | 15.22% null | No major issues detected\n\nSECTION 5 — RECOMMENDED ACTIONS\n1. Run sheet-doctor healing now: it can automatically address 8 issue type(s) across 13 flagged issue instance(s)\n2. Review 5 row(s) in the Quarantine tab that could not be repaired safely\n3. Manually inspect 11 cleaned row(s) still flagged `needs_review=TRUE` before relying on them downstream\n4. Normalize mixed date formats in Date (4 formats across about 47 populated row(s)) (auto-fixable)\n5. Review near-duplicate values in Department, Currency, Amount, Status to decide which versions should be merged or kept\n6. Manually check outlier values in Amount before trusting totals or downstream analysis\n\nSECTION 6 — ASSUMPTIONS\n• Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values\n• Ambiguous DD/MM vs MM/DD dates: day-first assumed; fallback to month-first if day-first is impossible\n• DD-MM-YY / MM-DD-YY two-digit years: day-first assumed; fallback to month-first if impossible; 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50\n• Unix timestamps: interpreted as UTC; converted to YYYY-MM-DD\n• Excel serial dates: Windows epoch (1899-12-30); range 40,000–55,000 treated as dates\n• European decimal 1.200,00: detected when period precedes comma; converted to 1200.00\n• Combined values like '$1,200 USD' are split so Amount keeps the numeric value and Currency keeps the ISO code\n• Blank / N/A / TBD amounts: cleared to empty string and flagged needs_review=TRUE\n• \"INR ₹\" and similar symbol+code combos: symbol stripped, ISO code kept\n• \"Eng\" department abbreviation: kept as-is (expanding abbreviations requires a lookup table)\n• Short blank runs in categorical columns are forward-filled when they look like merged-cell export gaps; filled rows are flagged for review\n• Rows with long single-cell prose are treated as notes/metadata rather than transactional data\n• Rows labelled TOTAL/Subtotal/SUM are quarantined when the amount matches the running total closely enough to look calculated\n• Near-duplicate rows (same Name/Amount/Currency/Category, date within 2 days): both kept, both flagged\n• Exact duplicates: first occurrence kept; subsequent occurrences removed and logged\n• Short rows (< 8 columns): padded with empty strings; flagged needs_review=TRUE\n• Metadata export row (sparse, 1/8 fields filled): quarantined as 'Less than 50% columns filled'\n"
 }

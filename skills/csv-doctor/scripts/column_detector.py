@@ -26,6 +26,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent))
 from loader import load_file
 
+# Maximum non-null values to inspect per column for type inference.
+# Null counts and value_counts still run on the full column (pandas native, fast).
+COLUMN_ANALYSIS_SAMPLE_ROWS = 2_000
 
 TYPE_ORDER = [
     "date",
@@ -449,6 +452,7 @@ def detect_suspected_issues(
     atomic_types: list[str],
     date_labels: list[str],
     numeric_values: list[float],
+    raw_non_null_texts: list[str] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     non_null_count = len(non_null_texts)
@@ -458,7 +462,8 @@ def detect_suspected_issues(
     if len(set(label for label in date_labels if label)) > 1:
         issues.append("Mixed date formats detected")
 
-    raw_non_null = [stringify(value) for value in series if not is_effective_null(value)]
+    # Use pre-built raw (unstripped) texts when provided; fall back to full series scan.
+    raw_non_null = raw_non_null_texts if raw_non_null_texts is not None else [stringify(value) for value in series if not is_effective_null(value)]
     whitespace_count = sum(1 for value in raw_non_null if isinstance(value, str) and WHITESPACE_RE.search(value))
     if whitespace_count:
         pct = round((whitespace_count / non_null_count) * 100, 1)
@@ -515,13 +520,26 @@ def analyse_column(series: pd.Series) -> dict[str, Any]:
     null_count = total_count - len(non_null_values)
     null_percentage = round((null_count / total_count) * 100, 2) if total_count else 0.0
 
+    # Sample for type inference — statistically sufficient; nulls/uniques stay on full data
+    if len(non_null_values) > COLUMN_ANALYSIS_SAMPLE_ROWS:
+        sample_idx = random.sample(range(len(non_null_values)), COLUMN_ANALYSIS_SAMPLE_ROWS)
+        infer_values = [non_null_values[i] for i in sample_idx]
+        infer_texts  = [non_null_texts[i]  for i in sample_idx]
+        analysis_sampled = True
+    else:
+        infer_values = non_null_values
+        infer_texts  = non_null_texts
+        analysis_sampled = False
+    # Unstripped texts for whitespace detection (fast; uses the sample)
+    infer_raw_texts = [stringify(v) for v in infer_values]
+
     atomic_types: list[str] = []
     atomic_counts = Counter()
     date_labels: list[str] = []
     numeric_values: list[float] = []
     date_values: list[datetime] = []
 
-    for value in non_null_values:
+    for value in infer_values:
         atomic_type = detect_atomic_type(value)
         atomic_types.append(atomic_type)
         atomic_counts[atomic_type] += 1
@@ -547,7 +565,7 @@ def analyse_column(series: pd.Series) -> dict[str, Any]:
     mixed_types = False
     material_types = {
         kind for kind, count in atomic_counts.items()
-        if kind != "unknown" and count >= max(2, math.ceil(len(non_null_values) * 0.2))
+        if kind != "unknown" and count >= max(2, math.ceil(len(infer_values) * 0.2))
     }
     if len(material_types) > 1:
         mixed_types = True
@@ -567,9 +585,9 @@ def analyse_column(series: pd.Series) -> dict[str, Any]:
     return {
         "detected_type": detected_type,
         "type_scores": {
-            kind: round((atomic_counts[kind] / len(non_null_values)) * 100, 2)
+            kind: round((atomic_counts[kind] / len(infer_values)) * 100, 2)
             for kind in TYPE_ORDER
-            if len(non_null_values) and atomic_counts[kind]
+            if len(infer_values) and atomic_counts[kind]
         },
         "null_count": null_count,
         "null_percentage": null_percentage,
@@ -580,13 +598,15 @@ def analyse_column(series: pd.Series) -> dict[str, Any]:
         "max_value": max_value,
         "sample_values": sample_examples(non_null_texts, 3),
         "has_mixed_types": mixed_types,
+        "analysis_sampled": analysis_sampled,
         "suspected_issues": detect_suspected_issues(
             series=series,
             detected_type=detected_type,
-            non_null_texts=non_null_texts,
+            non_null_texts=infer_texts,
             atomic_types=atomic_types,
             date_labels=date_labels,
             numeric_values=numeric_values,
+            raw_non_null_texts=infer_raw_texts,
         ),
     }
 

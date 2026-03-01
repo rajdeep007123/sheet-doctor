@@ -43,6 +43,7 @@ from loader import load_file
 
 try:
     import openpyxl
+    from openpyxl.cell import WriteOnlyCell
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 except ImportError:
@@ -66,6 +67,10 @@ COL     = {name: i for i, name in enumerate(HEADERS)}
 # Generic: 25% — unknown schema means we quarantine only obviously empty rows (>75% blank).
 SPARSE_THRESHOLD_SCHEMA  = 0.50
 SPARSE_THRESHOLD_GENERIC = 0.25
+
+# Performance thresholds for large files
+WRITE_ONLY_THRESHOLD   = 5_000   # rows: use openpyxl write_only mode above this
+LARGE_FILE_SKIP_EXTRAS = 10_000  # rows: skip near-dup detection and forward-fill above this
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1247,43 +1252,45 @@ def process_schema_specific(
         if parsed_amount is not None:
             running_amount_total += parsed_amount
 
-    forward_fill_merged_cell_gaps(clean_data, changelog)
+    # Skip expensive post-processing for very large files
+    if len(data_rows) <= LARGE_FILE_SKIP_EXTRAS:
+        forward_fill_merged_cell_gaps(clean_data, changelog)
 
-    # ── Near-duplicate detection (second pass on clean_data) ─────────────
-    nd_index: dict[tuple, int] = {}   # key → index in clean_data
-    for idx, entry in enumerate(clean_data):
-        r = entry.row
-        key = (r[COL["Employee Name"]], r[COL["Amount"]],
-               r[COL["Currency"]],     r[COL["Category"]])
-        if key in nd_index:
-            j       = nd_index[key]
-            prev    = clean_data[j]
-            d1, d2  = prev.row[COL["Date"]], entry.row[COL["Date"]]
-            if (d1 and d2
-                    and re.match(r"^\d{4}-\d{2}-\d{2}$", d1)
-                    and re.match(r"^\d{4}-\d{2}-\d{2}$", d2)):
-                try:
-                    delta = abs((datetime.strptime(d2, "%Y-%m-%d")
-                                 - datetime.strptime(d1, "%Y-%m-%d")).days)
-                    if delta <= 2:
-                        prev.needs_review  = True
-                        entry.needs_review = True
-                        for flagged, other_date, other_row_num in [
-                            (entry, d1, prev.row_num),
-                            (prev,  d2, entry.row_num),
-                        ]:
-                            changelog.append(Change(
-                                flagged.row_num, "[row]",
-                                flagged.row[COL["Employee Name"]], "",
-                                "Flagged",
-                                f"Near-duplicate: same Name/Amount/Currency/Category; "
-                                f"date {flagged.row[COL['Date']]} differs by {delta} day(s) "
-                                f"from row {other_row_num} ({other_date})"
-                            ))
-                except ValueError:
-                    pass
-        else:
-            nd_index[key] = idx
+        # ── Near-duplicate detection (second pass on clean_data) ─────────────
+        nd_index: dict[tuple, int] = {}   # key → index in clean_data
+        for idx, entry in enumerate(clean_data):
+            r = entry.row
+            key = (r[COL["Employee Name"]], r[COL["Amount"]],
+                   r[COL["Currency"]],     r[COL["Category"]])
+            if key in nd_index:
+                j       = nd_index[key]
+                prev    = clean_data[j]
+                d1, d2  = prev.row[COL["Date"]], entry.row[COL["Date"]]
+                if (d1 and d2
+                        and re.match(r"^\d{4}-\d{2}-\d{2}$", d1)
+                        and re.match(r"^\d{4}-\d{2}-\d{2}$", d2)):
+                    try:
+                        delta = abs((datetime.strptime(d2, "%Y-%m-%d")
+                                     - datetime.strptime(d1, "%Y-%m-%d")).days)
+                        if delta <= 2:
+                            prev.needs_review  = True
+                            entry.needs_review = True
+                            for flagged, other_date, other_row_num in [
+                                (entry, d1, prev.row_num),
+                                (prev,  d2, entry.row_num),
+                            ]:
+                                changelog.append(Change(
+                                    flagged.row_num, "[row]",
+                                    flagged.row[COL["Employee Name"]], "",
+                                    "Flagged",
+                                    f"Near-duplicate: same Name/Amount/Currency/Category; "
+                                    f"date {flagged.row[COL['Date']]} differs by {delta} day(s) "
+                                    f"from row {other_row_num} ({other_date})"
+                                ))
+                    except ValueError:
+                        pass
+            else:
+                nd_index[key] = idx
 
     return clean_data, quarantine, changelog
 
@@ -2017,8 +2024,9 @@ def process_generic(
                 running_amount_total += parsed_amount
 
     if semantic_plan.enabled and semantic_plan.fill_down_indices:
-        forward_fill_merged_cell_gaps_generic(clean_data, changelog, headers, semantic_plan.fill_down_indices)
-        flag_near_duplicates_semantic(clean_data, changelog, headers, semantic_plan)
+        if len(all_rows) - 1 <= LARGE_FILE_SKIP_EXTRAS:
+            forward_fill_merged_cell_gaps_generic(clean_data, changelog, headers, semantic_plan.fill_down_indices)
+            flag_near_duplicates_semantic(clean_data, changelog, headers, semantic_plan)
 
     return clean_data, quarantine, changelog, headers, applied_mode
 
@@ -2059,6 +2067,65 @@ def _infer_col_widths(rows: list[list], min_width: int = 10, max_width: int = 60
 FILL_MODIFIED = PatternFill("solid", fgColor="FFF2CC")   # soft yellow
 FILL_REVIEW   = PatternFill("solid", fgColor="FCE4D6")   # soft orange
 
+
+def _write_workbook_fast(
+    clean_data:  list[CleanRow],
+    quarantine:  list[QuarantineRow],
+    changelog:   list[Change],
+    output_path: Path,
+    headers: list[str],
+) -> None:
+    """Write_only=True path for large outputs — 5–10× faster than regular openpyxl."""
+    wb = openpyxl.Workbook(write_only=True)
+
+    hdr_font = Font(bold=True, color="FFFFFF")
+
+    def _hdr_cell(ws, value: str, hex_color: str) -> WriteOnlyCell:
+        c = WriteOnlyCell(ws, value=value)
+        c.font = hdr_font
+        c.fill = PatternFill("solid", fgColor=hex_color)
+        return c
+
+    # ── Sheet 1 — Clean Data ────────────────────────────────────────────
+    ws1 = wb.create_sheet("Clean Data")
+    clean_headers = headers + ["was_modified", "needs_review"]
+    for i in range(1, len(clean_headers) + 1):
+        ws1.column_dimensions[get_column_letter(i)].width = 15
+    ws1.append([_hdr_cell(ws1, h, "4CAF50") for h in clean_headers])
+    for entry in clean_data:
+        row_out = list(entry.row)
+        mod_cell = WriteOnlyCell(ws1, value=entry.was_modified)
+        rev_cell = WriteOnlyCell(ws1, value=entry.needs_review)
+        if entry.was_modified:
+            mod_cell.fill = FILL_MODIFIED
+        if entry.needs_review:
+            rev_cell.fill = FILL_REVIEW
+        ws1.append(row_out + [mod_cell, rev_cell])
+
+    # ── Sheet 2 — Quarantine ────────────────────────────────────────────
+    ws2 = wb.create_sheet("Quarantine")
+    quarantine_headers = headers + ["quarantine_reason"]
+    for i in range(1, len(quarantine_headers) + 1):
+        ws2.column_dimensions[get_column_letter(i)].width = 15
+    ws2.append([_hdr_cell(ws2, h, "E53935") for h in quarantine_headers])
+    for q in quarantine:
+        ws2.append(q.row + [q.reason])
+
+    # ── Sheet 3 — Change Log ────────────────────────────────────────────
+    ws3 = wb.create_sheet("Change Log")
+    log_headers = ["original_row_number", "column_affected",
+                   "original_value", "new_value", "action_taken", "reason"]
+    for i in range(1, len(log_headers) + 1):
+        ws3.column_dimensions[get_column_letter(i)].width = 15
+    ws3.append([_hdr_cell(ws3, h, "1565C0") for h in log_headers])
+    for c in changelog:
+        ws3.append([c.original_row_number, c.column_affected,
+                    c.original_value, c.new_value, c.action_taken, c.reason])
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(output_path)
+
+
 def write_workbook(
     clean_data:  list[CleanRow],
     quarantine:  list[QuarantineRow],
@@ -2067,6 +2134,9 @@ def write_workbook(
     headers: list[str] | None = None,
 ) -> None:
     headers = headers or HEADERS
+    if len(clean_data) > WRITE_ONLY_THRESHOLD:
+        _write_workbook_fast(clean_data, quarantine, changelog, output_path, headers)
+        return
     wb = openpyxl.Workbook()
 
     # ── Sheet 1 — Clean Data ─────────────────────────────────────────────

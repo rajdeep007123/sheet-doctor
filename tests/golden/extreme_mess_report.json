@@ -463,6 +463,7 @@
     "column_detector": {
       "columns": {
         "Amount": {
+          "analysis_sampled": false,
           "detected_type": "currency/amount",
           "has_mixed_types": true,
           "max_value": 45234.5,
@@ -511,6 +512,7 @@
           "unique_percentage": 70.0
         },
         "Category": {
+          "analysis_sampled": false,
           "detected_type": "categorical",
           "has_mixed_types": false,
           "max_value": null,
@@ -553,6 +555,7 @@
           "unique_percentage": 20.0
         },
         "Currency": {
+          "analysis_sampled": false,
           "detected_type": "currency code",
           "has_mixed_types": false,
           "max_value": null,
@@ -599,6 +602,7 @@
           "unique_percentage": 19.51
         },
         "Date": {
+          "analysis_sampled": false,
           "detected_type": "date",
           "has_mixed_types": false,
           "max_value": "2023-12-28",
@@ -646,6 +650,7 @@
           "unique_percentage": 90.48
         },
         "Department": {
+          "analysis_sampled": false,
           "detected_type": "categorical",
           "has_mixed_types": false,
           "max_value": null,
@@ -691,6 +696,7 @@
           "unique_percentage": 26.19
         },
         "Employee Name": {
+          "analysis_sampled": false,
           "detected_type": "name",
           "has_mixed_types": false,
           "max_value": null,
@@ -736,6 +742,7 @@
           "unique_percentage": 88.64
         },
         "Notes": {
+          "analysis_sampled": false,
           "detected_type": "free text",
           "has_mixed_types": false,
           "max_value": null,
@@ -777,6 +784,7 @@
           "unique_percentage": 84.62
         },
         "Status": {
+          "analysis_sampled": false,
           "detected_type": "categorical",
           "has_mixed_types": false,
           "max_value": null,
@@ -888,6 +896,7 @@
       "column_semantics": {
         "columns": {
           "Amount": {
+            "analysis_sampled": false,
             "detected_type": "currency/amount",
             "has_mixed_types": true,
             "max_value": 45234.5,
@@ -936,6 +945,7 @@
             "unique_percentage": 70.0
           },
           "Category": {
+            "analysis_sampled": false,
             "detected_type": "categorical",
             "has_mixed_types": false,
             "max_value": null,
@@ -978,6 +988,7 @@
             "unique_percentage": 20.0
           },
           "Currency": {
+            "analysis_sampled": false,
             "detected_type": "currency code",
             "has_mixed_types": false,
             "max_value": null,
@@ -1024,6 +1035,7 @@
             "unique_percentage": 19.51
           },
           "Date": {
+            "analysis_sampled": false,
             "detected_type": "date",
             "has_mixed_types": false,
             "max_value": "2023-12-28",
@@ -1071,6 +1083,7 @@
             "unique_percentage": 90.48
           },
           "Department": {
+            "analysis_sampled": false,
             "detected_type": "categorical",
             "has_mixed_types": false,
             "max_value": null,
@@ -1116,6 +1129,7 @@
             "unique_percentage": 26.19
           },
           "Employee Name": {
+            "analysis_sampled": false,
             "detected_type": "name",
             "has_mixed_types": false,
             "max_value": null,
@@ -1161,6 +1175,7 @@
             "unique_percentage": 88.64
           },
           "Notes": {
+            "analysis_sampled": false,
             "detected_type": "free text",
             "has_mixed_types": false,
             "max_value": null,
@@ -1202,6 +1217,7 @@
             "unique_percentage": 84.62
           },
           "Status": {
+            "analysis_sampled": false,
             "detected_type": "categorical",
             "has_mixed_types": false,
             "max_value": null,
