@@ -827,16 +827,18 @@ def normalise_date(value: str) -> tuple[str, bool, str]:
                 continue
         return v, False, ""
 
-    # MM-DD-YY (two-digit year, hyphens)
+    # DD-MM-YY or MM-DD-YY (two-digit year, hyphens) — prefer day-first, fall back to month-first
     m = re.match(r"^(\d{2})-(\d{2})-(\d{2})$", v)
     if m:
-        mo, day, yr = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        a, b, yr = int(m.group(1)), int(m.group(2)), int(m.group(3))
         year = 2000 + yr if yr < 50 else 1900 + yr
-        try:
-            return _fmt(datetime(year, mo, day)), True, \
-                   f"MM-DD-YY normalised (20xx assumed for year < 50)"
-        except ValueError:
-            return v, False, ""
+        for day, month, fmt in [(a, b, "DD-MM-YY"), (b, a, "MM-DD-YY")]:
+            try:
+                return _fmt(datetime(year, month, day)), True, \
+                       f"{fmt} normalised to ISO YYYY-MM-DD (day-first assumed; 20xx for year < 50)"
+            except ValueError:
+                continue
+        return v, False, ""
 
     # Month DD YYYY or Month D YYYY
     m = re.match(r"^([A-Za-z]+)\s+(\d{1,2})\s+(\d{4})$", v)
@@ -2132,7 +2134,7 @@ def write_workbook(
 ASSUMPTIONS = [
     "Rows that still contain Excel formulas as text (for example '=SUM(...)') are quarantined because they are not stable data values",
     "Ambiguous DD/MM vs MM/DD dates: day-first assumed; fallback to month-first if day-first is impossible",
-    "MM-DD-YY two-digit years: treated as 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50",
+    "DD-MM-YY / MM-DD-YY two-digit years: day-first assumed; fallback to month-first if impossible; 2000–2049 for YY < 50, 1950–1999 for YY ≥ 50",
     "Unix timestamps: interpreted as UTC; converted to YYYY-MM-DD",
     "Excel serial dates: Windows epoch (1899-12-30); range 40,000–55,000 treated as dates",
     "European decimal 1.200,00: detected when period precedes comma; converted to 1200.00",
@@ -2185,7 +2187,7 @@ def is_schema_specific_header(header_row: list[str]) -> bool:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Heal messy tabular files into a 3-sheet Excel workbook.")
     parser.add_argument("input", nargs="?", default=str(INPUT), help="Input file path")
-    parser.add_argument("output", nargs="?", default=str(OUTPUT), help="Output .xlsx path")
+    parser.add_argument("output", nargs="?", default=None, help="Output .xlsx path (default: <input_stem>_healed.xlsx next to input file)")
     parser.add_argument(
         "--header-row",
         dest="header_row",
@@ -2378,7 +2380,10 @@ def execute_healing(
 def main():
     args = parse_args(sys.argv[1:])
     input_path = Path(args.input)
-    output_path = Path(args.output)
+    if args.output is not None:
+        output_path = Path(args.output)
+    else:
+        output_path = input_path.parent / f"{input_path.stem}_healed.xlsx"
     role_overrides = parse_role_overrides(args.role_overrides)
     try:
         result = execute_healing(

@@ -9,6 +9,9 @@ from unittest import mock
 
 from openpyxl import Workbook
 
+_XLRD_AVAILABLE = importlib.util.find_spec("xlrd") is not None
+_ODFPY_AVAILABLE = importlib.util.find_spec("odf") is not None
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOADER_PATH = REPO_ROOT / "skills" / "csv-doctor" / "scripts" / "loader.py"
@@ -245,6 +248,8 @@ class LoaderPublicCorpusTests(unittest.TestCase):
     def test_public_xls_loads_selected_sheet(self):
         if self.xls_path is None:
             self.skipTest("public XLS fixture not available")
+        if not _XLRD_AVAILABLE:
+            self.skipTest("xlrd not installed — run: pip install xlrd")
 
         result = self.loader.load_file(self.xls_path, sheet_name="Visible")
 
@@ -264,6 +269,8 @@ class LoaderPublicCorpusTests(unittest.TestCase):
     def test_public_ods_loads_selected_sheet(self):
         if self.ods_path is None:
             self.skipTest("public ODS fixture not available")
+        if not _ODFPY_AVAILABLE:
+            self.skipTest("odfpy not installed — run: pip install odfpy")
 
         result = self.loader.load_file(self.ods_path, sheet_name="Visible")
 
@@ -302,6 +309,8 @@ class LoaderPublicCorpusTests(unittest.TestCase):
     def test_public_corrupt_xls_raises_clear_error(self):
         if self.corrupt_xls_path is None:
             self.skipTest("public corrupt XLS fixture not available")
+        if not _XLRD_AVAILABLE:
+            self.skipTest("xlrd not installed — run: pip install xlrd")
 
         with self.assertRaisesRegex(ValueError, "Could not open workbook"):
             self.loader.load_file(self.corrupt_xls_path)
@@ -309,6 +318,8 @@ class LoaderPublicCorpusTests(unittest.TestCase):
     def test_public_corrupt_xls_does_not_leak_parser_noise(self):
         if self.corrupt_xls_path is None:
             self.skipTest("public corrupt XLS fixture not available")
+        if not _XLRD_AVAILABLE:
+            self.skipTest("xlrd not installed — run: pip install xlrd")
 
         stdout = io.StringIO()
         stderr = io.StringIO()

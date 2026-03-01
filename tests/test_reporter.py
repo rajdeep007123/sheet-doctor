@@ -127,10 +127,12 @@ class ReporterTests(unittest.TestCase):
         payload["file_overview"]["scanned_at"] = "<TIMESTAMP>"
         payload["file_overview"]["encoding"] = "<DETECTED_ENCODING>"
         payload["run_summary"]["generated_at"] = "<TIMESTAMP>"
+        payload["run_summary"]["input_file"] = "<INPUT_FILE>"
         payload["input_file"] = "<INPUT_FILE>"
         payload["source_reports"]["diagnose"]["detected_encoding"] = "<DETECTED_ENCODING>"
         payload["source_reports"]["diagnose"]["encoding"]["detected"] = "<DETECTED_ENCODING>"
         payload["source_reports"]["diagnose"]["run_summary"]["generated_at"] = "<TIMESTAMP>"
+        payload["source_reports"]["diagnose"]["run_summary"]["input_file"] = "<INPUT_FILE>"
         payload["source_reports"]["diagnose"]["input_file"] = "<INPUT_FILE>"
         payload["text_report"] = cls.normalise_text_report(payload["text_report"])
         return payload
