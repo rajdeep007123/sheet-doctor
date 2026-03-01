@@ -10,6 +10,9 @@ CLI now available:
 sheet-doctor diagnose file.xlsx
 sheet-doctor heal file.csv
 sheet-doctor report file.json
+sheet-doctor validate file.csv --schema schema.json
+sheet-doctor config init
+sheet-doctor explain date_mixed_formats
 ```
 
 ---
@@ -276,8 +279,53 @@ CLI:
 sheet-doctor diagnose sample-data/extreme_mess.csv
 sheet-doctor heal sample-data/extreme_mess.csv
 sheet-doctor report sample-data/extreme_mess.csv
+sheet-doctor validate sample-data/extreme_mess.csv --schema schema.json
 sheet-doctor diagnose sample-data/messy_sample.xlsx
 sheet-doctor heal sample-data/messy_sample.xlsx
+```
+
+Top-level commands:
+- `sheet-doctor diagnose <input>`
+- `sheet-doctor heal <input>`
+- `sheet-doctor report <input>`
+- `sheet-doctor validate <input> --schema <path.json>`
+- `sheet-doctor config init`
+- `sheet-doctor explain <rule-id>`
+- `sheet-doctor version`
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | Command error, bad args, missing file, or unexpected crash |
+| `2` | Input parse/read failure |
+| `3` | Diagnose/report found issues |
+| `4` | Heal succeeded but quarantine rows exist |
+| `5` | Validate failed, or heal was run with `--fail-on-quarantine` and quarantine rows exist |
+
+Default output layout:
+
+If you do not pass `--out` or `--output`, the CLI writes into:
+
+```text
+./sheet-doctor-output/<stem>-<timestamp>/
+```
+
+Typical files:
+- `diagnose` -> `report.json`
+- `report` -> `report.txt` or `report.json`
+- `heal` -> cleaned workbook/file plus `heal-summary.json`
+
+CI-friendly JSON mode:
+- human-oriented logs go to `stderr`
+- machine-readable JSON goes to `stdout` when `--json` is set
+
+Example:
+
+```bash
+sheet-doctor diagnose sample-data/extreme_mess.csv --json > report.json
+echo $?  # 3 when issues are found
 ```
 
 Routing rules:
@@ -300,6 +348,15 @@ sheet-doctor heal sample-data/messy_sample.xlsx --json-summary /tmp/messy_sample
 
 # Tabular report as JSON
 sheet-doctor report sample-data/extreme_mess.csv --format json --output /tmp/extreme_mess_report.json
+
+# Validate against a simple JSON schema
+sheet-doctor validate sample-data/extreme_mess.csv --schema /tmp/schema.json
+
+# Generate a starter config file
+sheet-doctor config init
+
+# Explain a stable rule id
+sheet-doctor explain structural_misaligned_rows
 ```
 
 In any Claude Code session:
@@ -405,6 +462,8 @@ UI notes:
 ## Try it immediately
 
 Sample files live in `sample-data/` — all deliberately broken for testing.
+
+Direct script usage still works and is useful for development, but the installable `sheet-doctor` CLI is now the primary interface.
 
 **`messy_sample.csv`** — encoding corruption, misaligned columns, 7 date formats, empty rows, duplicate header.
 

@@ -7,6 +7,22 @@ All notable changes to sheet-doctor are documented here.
 ## [Unreleased]
 
 ### Changed
+- **CLI contract hardening** — `sheet-doctor` now behaves like a public tool contract instead of a thin wrapper:
+  - Added real top-level commands for `validate`, `config init`, `explain`, and `version` alongside `diagnose`, `heal`, and `report`
+  - Added stable exit codes:
+    - `0` success
+    - `1` command error / misuse / unexpected crash
+    - `2` unreadable or unparseable input
+    - `3` issues found by `diagnose` / `report`
+    - `4` heal completed with quarantine rows
+    - `5` validation failure or `--fail-on-quarantine`
+  - Added default output directories under `./sheet-doctor-output/<stem>-<timestamp>/`
+  - Added `--json` behavior where machine JSON is written to stdout and human-oriented logs stay on stderr
+  - Added `--dry-run` and `--fail-on-quarantine` for `heal`
+  - Added a minimal JSON-schema-backed `validate` command
+  - Added `config init` starter config generation
+  - Added `explain <rule-id>` for stable rule explanations
+  - Normalized CLI-facing report timestamps/metadata so deterministic test and CI comparisons stop drifting on incidental run metadata
 - **CLI / packaging** — `sheet-doctor` is now a real installable command:
   - Added `sheet-doctor diagnose <file>`
   - Added `sheet-doctor heal <file> [output]`
@@ -103,6 +119,7 @@ All notable changes to sheet-doctor are documented here.
   - documented workbook rescue as heuristic/best-effort
   - documented unsupported cases such as password-protected Excel and parquet
   - added `What this tool does not do` and `Out of scope` sections
+  - added the public CLI command set, exit-code table, default output layout, and CI-style `--json` examples
 
 ---
 
