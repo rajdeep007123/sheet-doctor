@@ -193,6 +193,8 @@ class ReporterTests(unittest.TestCase):
         payload["source_reports"]["diagnose"]["run_summary"]["generated_at"] = "<TIMESTAMP>"
         payload["source_reports"]["diagnose"]["run_summary"]["input_file"] = "<INPUT_FILE>"
         payload["source_reports"]["diagnose"]["input_file"] = "<INPUT_FILE>"
+        payload["run_summary"]["tool_version"] = "<TOOL_VERSION>"
+        payload["source_reports"]["diagnose"]["run_summary"]["tool_version"] = "<TOOL_VERSION>"
         payload["text_report"] = cls.normalise_text_report(payload["text_report"])
         cls._normalise_volatile_fields(payload)
         return payload
