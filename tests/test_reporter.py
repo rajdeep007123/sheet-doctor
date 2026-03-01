@@ -189,6 +189,7 @@ class ReporterTests(unittest.TestCase):
         payload["input_file"] = "<INPUT_FILE>"
         payload["source_reports"]["diagnose"]["detected_encoding"] = "<DETECTED_ENCODING>"
         payload["source_reports"]["diagnose"]["encoding"]["detected"] = "<DETECTED_ENCODING>"
+        payload["source_reports"]["diagnose"]["encoding"]["confidence"] = "<PLATFORM_SPECIFIC>"
         payload["source_reports"]["diagnose"]["run_summary"]["generated_at"] = "<TIMESTAMP>"
         payload["source_reports"]["diagnose"]["run_summary"]["input_file"] = "<INPUT_FILE>"
         payload["source_reports"]["diagnose"]["input_file"] = "<INPUT_FILE>"

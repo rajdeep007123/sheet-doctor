@@ -862,7 +862,7 @@
         ]
       },
       "encoding": {
-        "confidence": 0.62,
+        "confidence": "<PLATFORM_SPECIFIC>",
         "detected": "<DETECTED_ENCODING>",
         "is_utf8": false,
         "suspicious_chars": [
