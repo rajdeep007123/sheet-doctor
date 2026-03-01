@@ -121,7 +121,13 @@ class ReporterTests(unittest.TestCase):
             flags=re.MULTILINE,
         )
         # "Fixed changes: N" varies across Python/pandas versions (edge-case date rows)
-        return re.sub(r"Fixed changes: \d+", "Fixed changes: <PLATFORM_SPECIFIC>", text)
+        text = re.sub(r"Fixed changes: \d+", "Fixed changes: <PLATFORM_SPECIFIC>", text)
+        # chardet returns different encoding names across Python versions
+        return re.sub(
+            r"uses [A-Z][A-Z0-9-]+ instead of UTF-8",
+            "uses <DETECTED_ENCODING> instead of UTF-8",
+            text,
+        )
 
     # Fields whose values legitimately vary across Python / pandas versions.
     # These are normalised before snapshot comparison so CI stays green on
@@ -138,6 +144,18 @@ class ReporterTests(unittest.TestCase):
         "changelog_entries",
     }
 
+    @staticmethod
+    def _normalise_string(s: str) -> str:
+        """Replace platform-volatile substrings in plain text values."""
+        # chardet returns different encoding names across Python/chardet versions
+        # (e.g. "MacRoman" on 3.9 vs "WINDOWS-1250" on 3.14). The encoding name
+        # appears verbatim in issue plain_english strings, so normalise it here.
+        return re.sub(
+            r"uses [A-Z][A-Z0-9-]+ instead of UTF-8",
+            "uses <DETECTED_ENCODING> instead of UTF-8",
+            s,
+        )
+
     @classmethod
     def _normalise_volatile_fields(cls, obj) -> None:
         """Recursively replace fields whose values vary across Python/pandas versions."""
@@ -145,11 +163,17 @@ class ReporterTests(unittest.TestCase):
             for key in cls._VOLATILE_KEYS:
                 if key in obj:
                     obj[key] = "<PLATFORM_SPECIFIC>"
-            for v in obj.values():
-                cls._normalise_volatile_fields(v)
+            for key, value in list(obj.items()):
+                if isinstance(value, str):
+                    obj[key] = cls._normalise_string(value)
+                else:
+                    cls._normalise_volatile_fields(value)
         elif isinstance(obj, list):
-            for item in obj:
-                cls._normalise_volatile_fields(item)
+            for i, item in enumerate(obj):
+                if isinstance(item, str):
+                    obj[i] = cls._normalise_string(item)
+                else:
+                    cls._normalise_volatile_fields(item)
 
     @classmethod
     def normalise_report_json(cls, report: dict) -> dict:

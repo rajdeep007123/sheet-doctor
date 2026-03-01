@@ -28,7 +28,7 @@ SECTION 3 — ISSUES FOUND
   Auto-fixable: ✅
 
 ⚠️  Warning (will cause analysis errors)
-- The file uses WINDOWS-1250 instead of UTF-8, so some systems may misread special characters.
+- The file uses <DETECTED_ENCODING> instead of UTF-8, so some systems may misread special characters.
   Columns: file-wide
   Rows affected: 51
   Auto-fixable: ✅
