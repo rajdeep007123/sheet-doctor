@@ -6,6 +6,10 @@ All notable changes to sheet-doctor are documented here.
 
 ## [Unreleased]
 
+---
+
+## [0.5.0] — 2026-03-01
+
 ### Performance
 - **`csv-doctor` / `column_detector.py`** — large-file speed: 60s+ → 6.7s on 50k-row files
   - Type inference now samples up to 2,000 rows per column instead of scanning all rows; null counts and value_counts still run on the full column via fast pandas native ops

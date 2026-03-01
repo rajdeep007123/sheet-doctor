@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sheet-doctor"
-version = "0.5.0.dev0"
+version = "0.5.0"
 description = "Free local spreadsheet diagnosis and cleanup tools for messy CSV and Excel files"
 readme = "README.md"
 requires-python = ">=3.9"
