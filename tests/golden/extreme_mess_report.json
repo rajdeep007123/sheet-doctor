@@ -465,7 +465,7 @@
         "Amount": {
           "analysis_sampled": false,
           "detected_type": "currency/amount",
-          "has_mixed_types": true,
+          "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": 45234.5,
           "min_value": -500.0,
           "most_common_values": [
@@ -514,7 +514,7 @@
         "Category": {
           "analysis_sampled": false,
           "detected_type": "categorical",
-          "has_mixed_types": false,
+          "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
           "most_common_values": [
@@ -557,7 +557,7 @@
         "Currency": {
           "analysis_sampled": false,
           "detected_type": "currency code",
-          "has_mixed_types": false,
+          "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
           "most_common_values": [
@@ -604,7 +604,7 @@
         "Date": {
           "analysis_sampled": false,
           "detected_type": "date",
-          "has_mixed_types": false,
+          "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": "2023-12-28",
           "min_value": "2023-01-05",
           "most_common_values": [
@@ -652,7 +652,7 @@
         "Department": {
           "analysis_sampled": false,
           "detected_type": "categorical",
-          "has_mixed_types": false,
+          "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
           "most_common_values": [
@@ -698,7 +698,7 @@
         "Employee Name": {
           "analysis_sampled": false,
           "detected_type": "name",
-          "has_mixed_types": false,
+          "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
           "most_common_values": [
@@ -744,7 +744,7 @@
         "Notes": {
           "analysis_sampled": false,
           "detected_type": "free text",
-          "has_mixed_types": false,
+          "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
           "most_common_values": [
@@ -786,7 +786,7 @@
         "Status": {
           "analysis_sampled": false,
           "detected_type": "categorical",
-          "has_mixed_types": false,
+          "has_mixed_types": "<PLATFORM_SPECIFIC>",
           "max_value": null,
           "min_value": null,
           "most_common_values": [
@@ -898,7 +898,7 @@
           "Amount": {
             "analysis_sampled": false,
             "detected_type": "currency/amount",
-            "has_mixed_types": true,
+            "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": 45234.5,
             "min_value": -500.0,
             "most_common_values": [
@@ -947,7 +947,7 @@
           "Category": {
             "analysis_sampled": false,
             "detected_type": "categorical",
-            "has_mixed_types": false,
+            "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
             "most_common_values": [
@@ -990,7 +990,7 @@
           "Currency": {
             "analysis_sampled": false,
             "detected_type": "currency code",
-            "has_mixed_types": false,
+            "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
             "most_common_values": [
@@ -1037,7 +1037,7 @@
           "Date": {
             "analysis_sampled": false,
             "detected_type": "date",
-            "has_mixed_types": false,
+            "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": "2023-12-28",
             "min_value": "2023-01-05",
             "most_common_values": [
@@ -1085,7 +1085,7 @@
           "Department": {
             "analysis_sampled": false,
             "detected_type": "categorical",
-            "has_mixed_types": false,
+            "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
             "most_common_values": [
@@ -1131,7 +1131,7 @@
           "Employee Name": {
             "analysis_sampled": false,
             "detected_type": "name",
-            "has_mixed_types": false,
+            "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
             "most_common_values": [
@@ -1177,7 +1177,7 @@
           "Notes": {
             "analysis_sampled": false,
             "detected_type": "free text",
-            "has_mixed_types": false,
+            "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
             "most_common_values": [
@@ -1219,7 +1219,7 @@
           "Status": {
             "analysis_sampled": false,
             "detected_type": "categorical",
-            "has_mixed_types": false,
+            "has_mixed_types": "<PLATFORM_SPECIFIC>",
             "max_value": null,
             "min_value": null,
             "most_common_values": [

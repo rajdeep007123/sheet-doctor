@@ -122,6 +122,20 @@ class ReporterTests(unittest.TestCase):
         )
 
     @classmethod
+    def _normalise_volatile_fields(cls, obj) -> None:
+        """Recursively replace fields whose values vary across Python/pandas versions."""
+        if isinstance(obj, dict):
+            # has_mixed_types depends on type-detection thresholds which vary across
+            # pandas versions; normalise to avoid false cross-version failures.
+            if "has_mixed_types" in obj:
+                obj["has_mixed_types"] = "<PLATFORM_SPECIFIC>"
+            for v in obj.values():
+                cls._normalise_volatile_fields(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                cls._normalise_volatile_fields(item)
+
+    @classmethod
     def normalise_report_json(cls, report: dict) -> dict:
         payload = deepcopy(report)
         payload["file_overview"]["scanned_at"] = "<TIMESTAMP>"
@@ -135,6 +149,7 @@ class ReporterTests(unittest.TestCase):
         payload["source_reports"]["diagnose"]["run_summary"]["input_file"] = "<INPUT_FILE>"
         payload["source_reports"]["diagnose"]["input_file"] = "<INPUT_FILE>"
         payload["text_report"] = cls.normalise_text_report(payload["text_report"])
+        cls._normalise_volatile_fields(payload)
         return payload
 
 
