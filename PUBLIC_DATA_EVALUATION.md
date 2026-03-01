@@ -146,6 +146,19 @@ These are baseline runs from the current repo corpus so there is a stable compar
 | `real mess` | `tests/fixtures/excel/ragged_clinical.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `CRITICAL (9 issues)` | not re-scored here | n/a | n/a | 7 | No | workbook-native; metadata rows, stacked header, edge columns, dates cleaned |
 | `real mess` | `tests/fixtures/excel/formula_cases.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `CRITICAL (9 issues)` | not re-scored here | n/a | n/a | 0 | No | workbook-native preserves formulas; manual review required |
 
+## First public pass
+
+These are measured runs against public files already downloaded under `sample-data/public/`.
+
+| Class | File | Source | Tool | Format | Rows | Score | Before | After | Clean | Quarantine | Changes | Crashed? | Notes |
+|---|---|---|---|---:|---:|---|---|---:|---:|---:|---|---|
+| `smoke` | `Employee Sample Data.csv` | SpreadsheetGuru | `csv-doctor` | CSV | 1001 | `66 / 87 / 87` | `CRITICAL (4 issues)` | n/a | 1000 | 0 | 2245 | No | semantic mode; heavy normalization, no quarantine |
+| `smoke` | `Financials Sample Data.csv` | SpreadsheetGuru | `csv-doctor` | CSV | 352 | `80 / 82 / 82` | `NEEDS ATTENTION (2 issues)` | n/a | 351 | 0 | 351 | No | semantic mode; mostly straightforward cleanup |
+| `smoke` | `Employee Sample Data.xlsx` | SpreadsheetGuru | `excel-doctor` | XLSX | n/a | n/a | `HEALTHY (1 issue)` | `HEALTHY (1 issue)` | n/a | n/a | 15 | No | triage `workbook_native_safe_cleanup`; only high-null column remains |
+| `smoke` | `Financials Sample Data.xlsx` | SpreadsheetGuru | `excel-doctor` | XLSX | n/a | n/a | `HEALTHY (1 issue)` | `HEALTHY (1 issue)` | n/a | n/a | 0 | No | triage `workbook_native_safe_cleanup`; workbook was already mostly clean |
+| `smoke` | `learningcontainer-employee.xlsx` | Learning Container | `excel-doctor` | XLSX | n/a | n/a | `CRITICAL (2 issues)` | `CRITICAL (2 issues)` | n/a | n/a | 0 | No | triage `manual_spreadsheet_review_required`; formula error + mixed types remain untouched |
+| `smoke` | `Sample-sales-data-excel.xls` | Learning Container | `csv-doctor` | XLS | 9995 | n/a | `NEEDS ATTENTION (3 issues)` | n/a | 9994 | 0 | 399 | Partial | tabular fallback only; heal worked, but `sheet-doctor report ... --json` timed out after 20s and every clean row was flagged `needs_review` |
+
 ## Public targets to run
 
 ### Smoke targets
@@ -201,6 +214,12 @@ Fill this after the files are local:
 | `real mess` | `dirty_data_sample.*` | `csv-doctor` or `excel-doctor` | ? | ? | ? | ? | ? | ? | ? | ? | ? | |
 | `real mess` | `fifa21_messy_raw.csv` | `csv-doctor` | CSV | ? | ? | ? | ? | ? | ? | ? | ? | |
 | `real mess` | `dirty_dataset_practice.*` | `csv-doctor` or `excel-doctor` | ? | ? | ? | ? | ? | ? | ? | ? | ? | |
+| `smoke` | `Employee Sample Data.csv` | `csv-doctor` | CSV | 1001 | `66 / 87 / 87` | `CRITICAL (4 issues)` | n/a | 1000 | 0 | 2245 | No | SpreadsheetGuru |
+| `smoke` | `Financials Sample Data.csv` | `csv-doctor` | CSV | 352 | `80 / 82 / 82` | `NEEDS ATTENTION (2 issues)` | n/a | 351 | 0 | 351 | No | SpreadsheetGuru |
+| `smoke` | `Employee Sample Data.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `HEALTHY (1 issue)` | `HEALTHY (1 issue)` | n/a | n/a | 15 | No | SpreadsheetGuru; safe-cleanup triage |
+| `smoke` | `Financials Sample Data.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `HEALTHY (1 issue)` | `HEALTHY (1 issue)` | n/a | n/a | 0 | No | SpreadsheetGuru; already mostly clean |
+| `smoke` | `learningcontainer-employee.xlsx` | `excel-doctor` | XLSX | n/a | n/a | `CRITICAL (2 issues)` | `CRITICAL (2 issues)` | n/a | n/a | 0 | No | Learning Container; manual review required |
+| `smoke` | `Sample-sales-data-excel.xls` | `csv-doctor` | XLS | 9995 | n/a | `NEEDS ATTENTION (3 issues)` | n/a | 9994 | 0 | 399 | Partial | Learning Container; report JSON timed out after 20s |
 
 ## Notes on interpretation
 
